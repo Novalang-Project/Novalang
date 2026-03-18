@@ -1,0 +1,67 @@
+// --- List utilities ---
+
+// Create a range of numbers
+func range(start: int, end: int) -> list {
+    list lst = []
+    for(int i = start; i < end; i++) {
+        lst.push(i)
+    }
+    return lst
+}
+
+// Sum of elements
+func sum(lst: list) -> int {
+    int total = none
+    int i = 0
+    while(i < len(lst)) {
+        if(total == none)
+        {
+            total = lst[i]
+        }
+        else {
+            total = total + lst[i]
+        }
+        i++
+    }
+    return total
+}
+
+// Find element index (-1 if not found)
+func index_of(lst: list, value) -> int {
+    int i = 0
+    for(item in lst) {
+        if(item == value) {
+            return i
+        }
+        i++
+    }
+    return -1
+}
+
+// Check if list contains element
+func contains(lst: list, value) -> bool {
+    return index_of(lst, value) != -1
+}
+
+
+// Append all elements from one list to another
+func extend(lst: list, other: list) -> list {
+    list tmp_list = []
+    for(item in lst)
+    {
+        tmp_list.push(item)
+    }
+    for(item in other) {
+        tmp_list.push(item)
+    }
+    return tmp_list
+}
+
+// Copy list
+func copy(lst: list) -> list {
+    list tmp = []
+    for(item in lst) {
+        tmp.push(item)
+    }
+    return tmp
+}

@@ -1,0 +1,6 @@
+// User's original example - should NOT print anything
+// because condition i < 1 is false when i = 1
+for (int i = 1; i < 2; i++) {
+    println(i)
+}
+println("Loop ended (expected)")

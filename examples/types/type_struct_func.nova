@@ -1,0 +1,12 @@
+struct Person {
+    string name = ""
+    int age = 18
+}
+
+func printPerson(p: auto) {
+    println(p.name)
+    println(p.age)
+}
+
+Person test = Person(name="Alice", age=25)
+printPerson(test)

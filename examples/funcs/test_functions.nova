@@ -1,0 +1,29 @@
+# Test function calls
+
+# Function with no arguments
+func greet()
+{
+    return 1
+}
+
+greet()
+
+# Function with arguments (using a: int syntax)
+func add(a: int, b: int) -> int
+{
+    return a + b
+}
+
+# Function using variables
+int x = 10
+func multiply(a: int, b: int) -> int
+{
+    return a * b
+}
+
+println(multiply(x, 2))
+
+# Nested function call
+int result = add(multiply(2, 3), 1) + 4
+
+println(result + 1)

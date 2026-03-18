@@ -1,0 +1,11 @@
+// Test importing math library
+import "math"
+
+int maximum = max(5, 10)
+println("Max of 5 and 10:", maximum)
+
+int minimum = min(5, 10)
+println("Min of 5 and 10:", minimum)
+
+int absolute = abs(-42)
+println("Absolute of -42:", absolute)

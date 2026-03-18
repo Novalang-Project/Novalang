@@ -1,0 +1,4 @@
+# Test pop()
+list nums = [1, 2, 3]
+pop(nums)
+nums

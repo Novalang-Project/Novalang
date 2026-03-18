@@ -1,0 +1,8 @@
+// Test the main use case: toInt(input("prompt"))
+// This will prompt for input and convert it to int
+
+println("Enter your age:")
+auto age = toInt(input())
+println("You are", age, "years old")
+println("Next year you'll be", age + 1)
+

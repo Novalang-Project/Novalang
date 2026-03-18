@@ -1,0 +1,12 @@
+// Test continue
+list items = [1, 2, 3, 4, 5]
+int count = 0
+for(item in items) {  
+    if (item == 3) {
+        continue
+    }
+    println(item)
+    count = count + 1
+}
+println("Count:")
+println(count)

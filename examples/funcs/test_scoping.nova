@@ -1,0 +1,11 @@
+// Test function local scoping
+
+int globalX = 10
+
+func test() {
+    int globalX = 20
+    return globalX
+}
+
+int result = test()
+println(globalX)

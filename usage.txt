@@ -1,0 +1,4 @@
+./nova ../file.nova
+
+or ./nova for repl mode
+

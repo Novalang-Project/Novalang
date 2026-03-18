@@ -1,0 +1,4 @@
+# Simple test list functionality in NovaLang
+
+list nums = [1, 2, 3]
+nums

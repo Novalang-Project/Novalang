@@ -1,0 +1,58 @@
+import "strings"
+import "math"
+
+// recursive fibonacci
+func fib(int n) {
+    if (n < 2) {
+        return n
+    }
+
+    return fib(n - 1) + fib(n - 2)
+}
+
+// sum numbers with loop
+func sumTo(int n) {
+
+    auto total = 0
+    auto i = 0
+
+    while (i <= n) {
+        total = total + i
+        i = i + 1
+    }
+
+    return total
+}
+
+// heavy loop test
+func loopStress() {
+
+    auto i = 0
+    auto acc = 0
+
+    while (i < 10000) {
+        acc = acc + i
+        i = i + 1
+    }
+
+    return acc
+}
+
+// nested function calls
+func nestedCalls(int x) {
+
+    return square(abs(x)) + cube(sign(x))
+}
+
+func main() {
+
+    println("== VM TEST ==")
+
+    println(concat("fib(10): ", fib(10)))
+    println(concat("sumTo(100): ", sumTo(100)))
+
+    println(concat("loop stress: ", loopStress()))
+
+    println(concat("nestedCalls(-5): ", nestedCalls(-5)))
+
+}

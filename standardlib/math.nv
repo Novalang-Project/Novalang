@@ -1,0 +1,64 @@
+// --- Math utilities ---
+
+func max(a: int, b: int) -> int {
+    if (a > b) { return a } else { return b }
+}
+
+func min(a: int, b: int) -> int {
+    if (a < b) { return a } else { return b }
+}
+
+func abs(x: int) -> int {
+    if (x < 0) { return -x } else { return x }
+}
+
+func clamp(val: int, minVal: int, maxVal: int) -> int {
+    if (val < minVal) { return minVal }
+    if (val > maxVal) { return maxVal }
+    return val
+}
+
+func sign(x: int) -> int {
+    if (x < 0) { return -1 }
+    if (x > 0) { return 1 }
+    return 0
+}
+
+func square(x: int) -> int {
+    return x * x
+}
+
+func cube(x: int) -> int {
+    return x * x * x
+}
+
+func pow(base: int, exp: int) -> int {
+    int result = 1
+    int i = 0
+
+    while (i < exp)
+    {
+        result = result * base
+        i++
+    }
+
+    return result
+}
+
+func factorial(n: int) -> int {
+
+    int result = 1
+    int i = 2
+
+    while (i <= n)
+    {
+        result = result * i
+        i++
+    }
+
+    return result
+}
+
+func avg(a: int, b: int) -> float {
+    return (a + b) / 2
+}

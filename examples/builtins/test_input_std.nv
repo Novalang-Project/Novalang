@@ -1,0 +1,10 @@
+import "./standardlib/input"
+
+println(inputInt("Enter your age "))
+
+println(inputFloat("Enter the value of pi: "))
+
+println(inputBool("Input a bool value (false/true): "))
+
+println(inputString("Enter your name: "))
+

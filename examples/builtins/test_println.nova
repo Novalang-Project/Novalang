@@ -1,0 +1,5 @@
+println("Hello, World!")
+println(42)
+println(true)
+println([1, 2, 3])
+println("a", "b", "c")

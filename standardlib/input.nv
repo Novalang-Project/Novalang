@@ -1,0 +1,22 @@
+// --- Just a small input helper ---
+
+// Reads an int from user input
+func inputInt(message: string) -> int {
+    return toInt(input(message))
+}
+
+// Reads a float from user input
+func inputFloat(message: string) -> float {
+    return toFloat(input(message))
+}
+
+// Reads a bool from user input (accepts "true"/"false")
+func inputBool(message: string) -> bool {
+    auto val = input(message)
+    return val == "true"
+}
+
+// Reads a string from user input (just prints prompt)
+func inputString(message: string) -> string {
+    return input(message)
+}

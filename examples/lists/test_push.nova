@@ -1,0 +1,4 @@
+# Test push()
+list nums = [1, 2, 3]
+push(nums, 10)
+nums

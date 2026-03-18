@@ -1,0 +1,37 @@
+# Test elif keyword
+
+let x = 5
+
+# Test basic elif
+if (x > 10) {
+    println("x is greater than 10")
+} elif (x > 5) {
+    println("x is greater than 5 but not greater than 10")
+} elif (x > 0) {
+    println("x is greater than 0 but not greater than 5")
+} else {
+    println("x is not greater than 0")
+}
+
+# Test elif with else
+let y = 20
+if (y < 10) {
+    println("y is less than 10")
+} elif (y < 15) {
+    println("y is between 10 and 15")
+} elif (y < 25) {
+    println("y is between 15 and 25")
+}
+
+# Test elif as single statement (not block)
+let z = 4
+if (z == 1)
+    println("z is 1")
+elif (z == 2)
+    println("z is 2")
+elif (z == 3)
+    println("z is 3")
+else
+    println("z is something else")
+
+println("All tests passed!")

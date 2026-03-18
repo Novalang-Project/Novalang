@@ -1,0 +1,8 @@
+# Test list built-in functions
+
+list nums = [1, 2, 3]
+len(nums)
+push(nums, 10)
+
+pop(nums)
+

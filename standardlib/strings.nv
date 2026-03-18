@@ -1,0 +1,13 @@
+# --- String utilities ---
+
+func concat(a: string, b: string) -> string {
+    return a + b
+}
+
+func repeat(s: string, times: int) -> string {
+    string result = ""
+    for (int i = 0; i < times; i += 1) {
+        result = result + s
+    }
+    return result
+}

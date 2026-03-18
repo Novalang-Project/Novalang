@@ -1,0 +1,154 @@
+program
+    = { statement } ;
+
+statement
+    = variable_decl
+    | const_decl
+    | assignment
+    | function_decl
+    | struct_decl
+    | if_statement
+    | while_statement
+    | for_statement
+    | return_statement
+    | import_statement
+    | expression
+    ;
+
+--------------------------------------------------
+
+variable_decl
+    = type identifier "=" expression ;
+
+const_decl
+    = "const" type identifier "=" expression ;
+
+type
+    = "int"
+    | "float"
+    | "string"
+    | "bool"
+    | "list"
+    | "auto"
+    | identifier ;
+
+--------------------------------------------------
+
+assignment
+    = identifier "=" expression
+    | identifier compound_op expression ;
+
+compound_op
+    = "+="
+    | "-="
+    | "*="
+    | "/=" ;
+
+--------------------------------------------------
+
+function_decl
+    = "func" identifier "(" parameter_list? ")" return_type? block ;
+
+parameter_list
+    = parameter { "," parameter } ;
+
+parameter
+    = identifier ":" type ;
+
+return_type
+    = "->" type ;
+
+--------------------------------------------------
+
+struct_decl
+    = "struct" identifier "{" { struct_field } "}" ;
+
+struct_field
+    = type identifier "=" expression ;
+
+--------------------------------------------------
+
+if_statement
+    = "if" "(" expression ")" block
+      [ "else" block ] ;
+
+--------------------------------------------------
+
+while_statement
+    = "while" "(" expression ")" block ;
+
+--------------------------------------------------
+
+for_statement
+    = "for" "(" for_init ";" expression ";" expression ")" block
+    | "for" "(" identifier "in" expression ")" block ;
+
+for_init
+    = variable_decl
+    | assignment ;
+
+--------------------------------------------------
+
+return_statement
+    = "return" [ expression ] ;
+
+--------------------------------------------------
+
+import_statement
+    = "import" string_literal ;
+
+--------------------------------------------------
+
+block
+    = "{" { statement } "}" ;
+
+--------------------------------------------------
+
+expression
+    = equality ;
+
+equality
+    = comparison { ("==" | "!=") comparison } ;
+
+comparison
+    = term { ("<" | ">" | "<=" | ">=") term } ;
+
+term
+    = factor { ("+" | "-") factor } ;
+
+factor
+    = power { ("*" | "/") power } ;
+
+power
+    = unary { "^" unary } ;
+
+unary
+    = ("-" | "++" | "--") unary
+    | primary ;
+
+primary
+    = number
+    | string
+    | "true"
+    | "false"
+    | "none"
+    | identifier
+    | list_literal
+    | function_call
+    | "(" expression ")" ;
+
+--------------------------------------------------
+
+list_literal
+    = "[" [ expression { "," expression } ] "]" ;
+
+function_call
+    = identifier "(" argument_list? ")" ;
+
+argument_list
+    = expression { "," expression } ;
+
+--------------------------------------------------
+
+identifier
+    = letter { letter | digit | "_" } ;

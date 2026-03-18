@@ -1,0 +1,7 @@
+
+/build
+/build/CMakeFiles
+/.vscode
+test_std.nv
+*.cnv
+test.nv

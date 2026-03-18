@@ -1,0 +1,11 @@
+struct Person {
+    string name = ""
+    int age = 18
+}
+
+Person test = Person(name="text", age=51)
+
+println(test.name)  # Output: text
+println(test.age)   # Output: 51
+test.name = "newname"
+println(test.name)   # Output: newname

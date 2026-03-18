@@ -1,0 +1,11 @@
+# Test global keyword - matches user's example
+int x = 10
+
+func somefunc()
+{
+    global x
+    x = 3
+}
+
+somefunc()
+println(x)
