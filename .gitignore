@@ -5,3 +5,6 @@
 test_std.nv
 *.cnv
 test.nv
+syntax_and_plan.nova
+syntax_and_plan.nv
+grammar.txt
