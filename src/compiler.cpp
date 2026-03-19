@@ -796,7 +796,7 @@ void Compiler::compileIf(IfStmt& stmt) {
 // 9. Pop the loop context.
 void Compiler::compileWhile(WhileStmt& stmt) {
     loopStack.push_back(LoopContext());
-    LoopContext& loop = loopStack.back();
+    size_t loopIdx = loopStack.size() - 1;
     
     size_t loopStart = currentFunction->instructions.size();
     
@@ -813,11 +813,11 @@ void Compiler::compileWhile(WhileStmt& stmt) {
     
     patchJump(exitJump);
     
-    for (size_t continueJump : loop.continueJumps) {
+    for (size_t continueJump : loopStack[loopIdx].continueJumps) {
         patchJump(continueJump);
     }
     
-    for (size_t breakJump : loop.breakJumps) {
+    for (size_t breakJump : loopStack[loopIdx].breakJumps) {
         patchJump(breakJump);
     }
     
@@ -829,7 +829,7 @@ void Compiler::compileWhile(WhileStmt& stmt) {
 // Sets up a new loop context, manages break/continue jumps, and scopes properly.
 void Compiler::compileFor(ForStmt& stmt) {
     loopStack.push_back(LoopContext());
-    LoopContext& loop = loopStack.back();
+    size_t loopIdx = loopStack.size() - 1;
     
     if (stmt.init) {
         compileStatement(*stmt.init);
@@ -858,11 +858,11 @@ void Compiler::compileFor(ForStmt& stmt) {
     
     patchJump(exitJump);
     
-    for (size_t continueJump : loop.continueJumps) {
+    for (size_t continueJump : loopStack[loopIdx].continueJumps) {
         patchJump(continueJump);
     }
     
-    for (size_t breakJump : loop.breakJumps) {
+    for (size_t breakJump : loopStack[loopIdx].breakJumps) {
         patchJump(breakJump);
     }
     
@@ -875,7 +875,7 @@ void Compiler::compileFor(ForStmt& stmt) {
 // 3. Using index-based iteration
 void Compiler::compileForIn(ForInStmt& stmt) {
     loopStack.push_back(LoopContext());
-    LoopContext& loop = loopStack.back();
+    size_t loopIdx = loopStack.size() - 1;
     
     // For-in loop variables are inferred as Unknown (dynamic)
     if (localVariables.find(stmt.varName) == localVariables.end()) {
@@ -921,10 +921,10 @@ void Compiler::compileForIn(ForInStmt& stmt) {
     
     patchJump(exitJump);
     
-    for (size_t continueJump : loop.continueJumps) {
+    for (size_t continueJump : loopStack[loopIdx].continueJumps) {
         patchJump(continueJump);
     }
-    for (size_t breakJump : loop.breakJumps) {
+    for (size_t breakJump : loopStack[loopIdx].breakJumps) {
         patchJump(breakJump);
     }
     

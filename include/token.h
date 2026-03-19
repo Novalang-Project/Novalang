@@ -12,6 +12,7 @@ namespace nova {
         Minus,
         Star,
         Slash,
+        Percent,
         PlusPlus,
         MinusMinus,
         PlusEqual,

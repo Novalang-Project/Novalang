@@ -1487,7 +1487,8 @@ namespace nova {
         switch (tk.type) {
             case TokenType::Caret: return 80;
             case TokenType::Star:
-            case TokenType::Slash: return 70;
+            case TokenType::Slash:
+            case TokenType::Percent: return 70;
             case TokenType::Plus:
             case TokenType::Minus: return 60;
             case TokenType::EqualEqual:

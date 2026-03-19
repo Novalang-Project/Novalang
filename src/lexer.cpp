@@ -251,9 +251,11 @@ namespace nova {
             case '-': get(); return {TokenType::Minus, "-", startLine, startCol};
             case '*': get(); return {TokenType::Star, "*", startLine, startCol};
             case '/': get(); return {TokenType::Slash, "/", startLine, startCol};
+            case '%': get(); return {TokenType::Percent, "%" , startLine, startCol};
             case '<': get(); return {TokenType::Less, "<", startLine, startCol};
             case '>': get(); return {TokenType::Greater, ">", startLine, startCol};
             case '=': get(); return {TokenType::Assign, "=", startLine, startCol};
+            case '^': get(); return {TokenType::Caret, "^", startLine, startCol};
         }
 
 // ==== PUNCTUATION ====
@@ -269,7 +271,6 @@ namespace nova {
             case ';': get(); return {TokenType::Semicolon, ";", startLine, startCol};
             case ',': get(); return {TokenType::Comma, ",", startLine, startCol};
             case '.': get(); return {TokenType::Dot, ".", startLine, startCol};
-            case '^': get(); return {TokenType::Caret, "^", startLine, startCol};
             default:
                 // Unknown single char token - throw an error
                 char invalidChar = get();
