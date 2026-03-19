@@ -23,6 +23,7 @@ NovaLang currently supports the following language features:
   * `string`
   * `bool`
 * Type inference using `auto`
+* Any variable type using `any`, meaning variable types can change during runtime.
 * Optional type annotations for stricter code
 
 Example:
@@ -30,6 +31,9 @@ Example:
 ```cpp
 auto x = 10
 string name = "Nova"
+
+any y = 20
+y = "Lang"
 ```
 
 ---
@@ -240,8 +244,12 @@ This architecture provides several benefits:
 A modular system for organizing and reusing code.
 
 ```py
-import "math"
-import "path/to/lib"
+import "math" # imports all available variables/functions into the modules namespace
+import { range } from "lists" # imports specified functions to the global scope
+
+println(range(1,6)) # not namespaced as its a specified import
+
+println(math.square(3)) # default namespacing
 ```
 
 # Planned Features
