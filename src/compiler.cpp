@@ -6,6 +6,7 @@
 #include <sstream>
 #include <iostream>
 #include <stdexcept>
+#include <filesystem>
 
 namespace nova {
 
@@ -297,6 +298,7 @@ void Compiler::compileUnary(UnaryExpr& expr) {
 // Compile an identifier expression by emitting bytecode to load its value.
 // It first checks if the identifier is a declared global, then a local variable,
 // and defaults to loading a global variable if not found locally.
+// Also enforces namespace usage for imported modules.
 void Compiler::compileIdentifier(IdentifierExpr& expr) {
     setLine(expr.loc.line);
     setCol(expr.loc.column);
@@ -311,6 +313,21 @@ void Compiler::compileIdentifier(IdentifierExpr& expr) {
         declaredGlobals.find(expr.name) != declaredGlobals.end()) {
         emitString(OpCode::LOAD_GLOBAL, expr.name);
         return;
+    }
+    
+    // Check if this identifier is from an imported namespace (but not selectively imported)
+    // If so, enforce namespace usage
+    for (const auto& [nsName, symbols] : importedNamespaces) {
+        if (symbols.find(expr.name) != symbols.end()) {
+            // This symbol is from an imported namespace
+            // Check if it was also selectively imported (those are allowed without prefix)
+            if (selectiveImports.find(expr.name) == selectiveImports.end()) {
+                throw ImportError(currentLine, currentCol,
+                    "Symbol '" + expr.name + "' is from namespace '" + nsName + "'. "
+                    "Use '" + nsName + "." + expr.name + "' to access it, or "
+                    "use 'import { " + expr.name + " } from \"" + nsName + "\"' for direct access.");
+            }
+        }
     }
     
     // Variable not found - error
@@ -436,6 +453,27 @@ void Compiler::compileCall(CallExpr& expr) {
     if (auto* ident = dynamic_cast<IdentifierExpr*>(expr.callee.get())) {
         std::string funcName = ident->name;
         
+        for (const auto& [nsName, symbols] : importedNamespaces) {
+            if (symbols.find(funcName) != symbols.end()) {
+                if (selectiveImports.find(funcName) == selectiveImports.end()) {
+                    throw ImportError(currentLine, currentCol,
+                        "Function '" + funcName + "' is from namespace '" + nsName + "'. "
+                        "Use '" + nsName + "." + funcName + "()' to call it, or "
+                        "use 'import { " + funcName + " } from \"" + nsName + "\"' for direct access.");
+                }
+            }
+        }
+        
+        // Check if this is an aliased import - resolve to original function name
+        auto aliasIt = selectiveImports.find(funcName);
+        if (aliasIt != selectiveImports.end()) {
+            std::string fullName = aliasIt->second;
+            size_t dotPos = fullName.rfind('.');
+            if (dotPos != std::string::npos) {
+                funcName = fullName.substr(dotPos + 1);
+            }
+        }
+        
         if (funcName == "len" || funcName == "push" || funcName == "pop" || 
             funcName == "println" || funcName == "removeAt" || funcName == "input") {
             int localIdx = -1;
@@ -552,7 +590,23 @@ void Compiler::compileList(ListExpr& expr) {
 
 // Compile a member access expression: object.field.
 // Compiles the object and emits a FIELD_GET opcode to access the specified field.
+// Also validates namespace access for imported modules.
 void Compiler::compileMember(MemberExpr& expr) {
+    // Check if this is a namespace access (object is an identifier that matches an imported namespace)
+    if (auto* ident = dynamic_cast<IdentifierExpr*>(expr.object.get())) {
+        std::string nsName = ident->name;
+        
+        auto nsIt = importedNamespaces.find(nsName);
+        if (nsIt != importedNamespaces.end()) {
+            // This is a namespace access - validate the symbol exists in the namespace
+            const auto& symbols = nsIt->second;
+            if (symbols.find(expr.field) == symbols.end()) {
+                throw ImportError(currentLine, currentCol,
+                    "Symbol '" + expr.field + "' not found in namespace '" + nsName + "'");
+            }
+        }
+    }
+    
     compileExpression(*expr.object);
     
     emitString(OpCode::FIELD_GET, expr.field);
@@ -664,6 +718,11 @@ void Compiler::compileVarDecl(VarDecl& decl) {
 // Sets up a new function context, adds parameters as locals,
 // compiles the function body, and emits an implicit return if needed.
 void Compiler::compileFuncDecl(FuncDecl& decl) {
+    // Track function name for collision detection (current file only)
+    if (functionDepth == 0) {
+        currentFileFunctions.insert(decl.name);
+    }
+    
     BytecodeFunction* newFunc = enterFunction(decl.name);
     newFunc->numParams = decl.params.size();
     
@@ -916,6 +975,10 @@ void Compiler::compileGlobal(GlobalStmt& stmt) {
 
 // Compile an import declaration.
 // Resolves the import path, checks for circular imports, and compiles the imported file.
+// Handles:
+//   - Regular imports: import "path" - creates a namespace with all exported symbols
+//   - Selective imports: import { symbol } from "path" - imports specific symbols
+//   - Selective imports with alias: import { symbol as alias } from "path"
 void Compiler::compileImport(ImportDecl& decl) {
     std::string importPath = decl.path;
     
@@ -927,23 +990,59 @@ void Compiler::compileImport(ImportDecl& decl) {
     
     std::string fullPath = *resolvedPath;
     
-    // Check for circular imports
-    if (importedFiles.find(fullPath) != importedFiles.end()) {
+    std::filesystem::path normalizedPath = std::filesystem::absolute(fullPath);
+    std::string normalizedPathStr = normalizedPath.string();
+    
+    if (importedFiles.find(normalizedPathStr) != importedFiles.end()) {
         return;
     }
     
-    importedFiles.insert(fullPath);
+    importedFiles.insert(normalizedPathStr);
     
-    compileImportFile(fullPath);
+    std::filesystem::path pathObj(importPath);
+    std::string moduleName = pathObj.filename().string();
+    
+    std::unordered_set<std::string> exportedSymbols;
+    
+    exportedSymbols = compileImportFile(fullPath, moduleName);
+    
+    if (decl.isSelective) {
+        // Selective import: import { symbol } from "module"
+        // Check for collision with existing global symbols
+        for (const auto& symbol : decl.symbols) {
+            std::string targetName = symbol.alias.empty() ? symbol.originalName : symbol.alias;
+            
+            // Check if symbol exists in the module
+            if (exportedSymbols.find(symbol.originalName) == exportedSymbols.end()) {
+                throw ImportError(currentLine, currentCol, 
+                    "Symbol '" + symbol.originalName + "' not found in module '" + moduleName + "'");
+            }
+            
+            // Check for collision with existing global symbols or current file's functions
+            if (globalSymbols.find(targetName) != globalSymbols.end() ||
+                currentFileFunctions.find(targetName) != currentFileFunctions.end()) {
+                throw ImportError(currentLine, currentCol, 
+                    "Symbol '" + targetName + "' is already defined. "
+                    "Use 'import { " + symbol.originalName + " as <alias> } from \"" + moduleName + "\"' to import with a different name.");
+            }
+            
+            // Add to global symbols and track the selective import
+            globalSymbols.insert(targetName);
+            selectiveImports[targetName] = moduleName + "." + symbol.originalName;
+        }
+    } else {
+        importedNamespaces[moduleName] = exportedSymbols;
+    }
 }
 
 // Resolve the full file path for an import.
 // Checks standard library directory first, then local/current file directory.
 // Supports extensions .nova and .nv
+// Uses std::filesystem::path::preferred_separator for path handling
 std::optional<std::string> Compiler::resolveImportPath(const std::string& path, const std::string& currentFileDir) {
     std::vector<std::string> extensions = {".nv", ".nova"};
     
-    std::string sep = "/";
+    std::string sep(1, std::filesystem::path::preferred_separator);
     
     for (const auto& ext : extensions) {
         std::string fullPath = standardLibDir + sep + path + ext;
@@ -975,7 +1074,10 @@ std::optional<std::string> Compiler::resolveImportPath(const std::string& path, 
 // Reads the file, lexes and parses its source, checks for parse errors,
 // and compiles all top-level declarations (functions, structs, variables, nested imports).
 // Saves and restores the current file directory to handle relative imports correctly.
-void Compiler::compileImportFile(const std::string& filepath) {
+// Returns a set of exported symbol names (functions, structs, globals).
+std::unordered_set<std::string> Compiler::compileImportFile(const std::string& filepath, const std::string& moduleName) {
+    std::unordered_set<std::string> exportedSymbols;
+    
     std::ifstream file(filepath.c_str());
     if (!file.good()) {
         throw std::runtime_error("Cannot open import file: " + filepath);
@@ -986,10 +1088,16 @@ void Compiler::compileImportFile(const std::string& filepath) {
     std::string source = buffer.str();
     file.close();
     
-    size_t lastSep = filepath.find_last_of("/\\");
-    std::string importDir = (lastSep != std::string::npos) ? filepath.substr(0, lastSep) : ".";
+    // Use filesystem for path handling
+    std::filesystem::path fsPath(filepath);
+    std::string importDir = fsPath.parent_path().string();
+    if (importDir.empty()) {
+        importDir = ".";
+    }
     
     std::string savedFileDir = currentFileDir;
+    std::unordered_set<std::string> savedFileFunctions = currentFileFunctions;
+    currentFileFunctions.clear();  // Clear for imported file
     currentFileDir = importDir;
     
     Lexer lexer(source);
@@ -1012,20 +1120,34 @@ void Compiler::compileImportFile(const std::string& filepath) {
         throw std::runtime_error("Invalid imported program: " + filepath);
     }
     
-    // Compile all declarations in the imported file
-    for (auto& importDecl : importedProgram->decls) {
-        if (auto* funcDecl = dynamic_cast<FuncDecl*>(importDecl.get())) {
+    // First pass: collect all exported symbols (functions, structs, globals)
+    for (auto& decl : importedProgram->decls) {
+        if (auto* funcDecl = dynamic_cast<FuncDecl*>(decl.get())) {
+            exportedSymbols.insert(funcDecl->name);
+        } else if (auto* structDecl = dynamic_cast<StructDecl*>(decl.get())) {
+            exportedSymbols.insert(structDecl->name);
+        } else if (auto* varDecl = dynamic_cast<VarDecl*>(decl.get())) {
+            exportedSymbols.insert(varDecl->name);
+        }
+    }
+    
+    // Second pass: compile all declarations
+    for (auto& decl : importedProgram->decls) {
+        if (auto* funcDecl = dynamic_cast<FuncDecl*>(decl.get())) {
             compileFuncDecl(*funcDecl);
-        } else if (auto* structDecl = dynamic_cast<StructDecl*>(importDecl.get())) {
+        } else if (auto* structDecl = dynamic_cast<StructDecl*>(decl.get())) {
             compileStructDecl(*structDecl);
-        } else if (auto* varDecl = dynamic_cast<VarDecl*>(importDecl.get())) {
+        } else if (auto* varDecl = dynamic_cast<VarDecl*>(decl.get())) {
             compileVarDecl(*varDecl);
-        } else if (auto* importSubDecl = dynamic_cast<ImportDecl*>(importDecl.get())) {
+        } else if (auto* importSubDecl = dynamic_cast<ImportDecl*>(decl.get())) {
             compileImport(*importSubDecl);
         }
     }
     
     currentFileDir = savedFileDir;
+    currentFileFunctions = savedFileFunctions;  // Restore
+    
+    return exportedSymbols;
 }
 
 // Compile an expression statement.
@@ -1308,6 +1430,12 @@ bool Compiler::checkTypeCompatibility(DeclaredType declared, DeclaredType actual
     }
     
     if (declared == DeclaredType::Unknown) {
+        return true;
+    }
+    
+    // If actual type is unknown (e.g., complex expression), allow it
+    // since we can't determine the type at compile time
+    if (actual == DeclaredType::Unknown) {
         return true;
     }
     

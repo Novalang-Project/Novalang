@@ -76,8 +76,23 @@ private:
     // Saved global variables for nested function scopes
     std::vector<std::unordered_set<std::string>> savedGlobalVariables;
 
-    // Track imported files to avoid circular imports
+    // Track imported files to avoid circular imports (using normalized paths)
     std::unordered_set<std::string> importedFiles;
+    
+    // Track all globally declared names for collision detection
+    std::unordered_set<std::string> globalSymbols;
+    
+    // Track all function names for collision detection (current file only)
+    std::unordered_set<std::string> currentFileFunctions;
+    
+    // Track imported namespaces (module name -> set of exported symbols)
+    std::unordered_map<std::string, std::unordered_set<std::string>> importedNamespaces;
+    
+    // Track selectively imported symbols with their original module
+    std::unordered_map<std::string, std::string> selectiveImports;  // symbol -> module path
+    
+    // Pending selective imports to check after all declarations are compiled
+    std::vector<std::pair<ImportSymbol, std::string>> pendingSelectiveImports;
     
     // Standard library directory
     std::string standardLibDir;
@@ -170,7 +185,7 @@ private:
     
     // Import handling
     std::optional<std::string> resolveImportPath(const std::string& path, const std::string& currentFileDir);
-    void compileImportFile(const std::string& filepath);
+    std::unordered_set<std::string> compileImportFile(const std::string& filepath, const std::string& moduleName);
 };
 
 } // namespace nova

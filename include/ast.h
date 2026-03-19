@@ -124,9 +124,17 @@ namespace nova
         std::vector<VarDecl> members;
     };
 
+    // Represents a single imported symbol with optional alias
+    struct ImportSymbol {
+        std::string originalName;  // original symbol name in the module
+        std::string alias;          // alias name (empty if no alias)
+    };
+
     struct ImportDecl : Declaration
     {
         std::string path;  // the import path, e.g., "lists", "core/test/simple_lib"
+        std::vector<ImportSymbol> symbols;  // empty means import all (namespace import)
+        bool isSelective = false;  // true if using { symbol } syntax
     };
 
     struct ClassDecl : Declaration

@@ -1,5 +1,5 @@
-// Test importing math library
-import "math"
+// Test importing math library with selective imports
+import { max, min, abs } from "math"
 
 int maximum = max(5, 10)
 println("Max of 5 and 10:", maximum)
