@@ -1,0 +1,123 @@
+# =========================
+# NovaLang Demo Program
+# =========================
+
+# --- Imports ---
+import "lists"
+import { square, cube } from "math"
+
+# --- Constants & Globals ---
+const int MAX_COUNT = 5
+int globalCounter = 0
+
+# --- Structs ---
+struct Person {
+    string name = ""
+    int age = 18
+}
+
+# --- Functions ---
+
+func greet(name: string)
+{
+    println("Hello,", name)
+}
+
+func add(a: int, b: int) -> int
+{
+    return a + b
+}
+
+func multiply(a: int, b: int) -> int
+{
+    return a * b
+}
+
+func printPerson(p: Person)
+{
+    println("Name:", p.name)
+    println("Age:", p.age)
+}
+
+func incrementGlobal()
+{
+    global globalCounter
+    globalCounter++
+}
+
+# --- Main Entry ---
+func main() -> int
+{
+
+    # Variables
+    int a = 10
+    float b = 3.5
+    string msg = "NovaLang Demo"
+
+    println(msg)
+
+    # Math
+    int result = add(a, 5)
+    result = result * 2
+    result++
+
+    println("Result:", result)
+
+    # Selective import usage
+    println("Square:", square(4))
+    println("Cube:", cube(3))
+
+    # Lists
+    list numbers = [1, 2, 3, 4]
+    push(numbers, 5)
+
+    println("List length:", len(numbers))
+
+    # Loop
+    for (item in numbers)
+    {
+        println("Item:", item)
+    }
+
+    # While loop
+    int i = 0
+    while (i < MAX_COUNT)
+    {
+        println("i =", i)
+        i++
+    }
+
+    # Struct usage
+    Person p = Person(name="Alice", age=25)
+    printPerson(p)
+
+    # Function calls
+    greet("World")
+
+    int nested = add(multiply(2, 3), 1)
+    println("Nested result:", nested)
+
+    # Conditionals
+    bool flag = true
+
+    if (flag == true)
+    {
+        println("Flag is true")
+    }
+    else
+    {
+        println("Flag is false")
+    }
+
+    # Global modification
+    incrementGlobal()
+    incrementGlobal()
+    println("Global counter:", globalCounter)
+
+    # None usage
+    int temp = 5
+    temp = none
+    println("Temp value:", temp)
+
+    return 0
+}
