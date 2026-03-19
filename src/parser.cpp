@@ -219,6 +219,9 @@ namespace nova {
         strct->loc.column = previous().column;
         strct->name = previous().value;
         
+        // Track this struct name for variable declaration recognition
+        structNames.insert(strct->name);
+        
         if (!match(TokenType::BraceOpen)) {
             error("Expected '{' after struct name");
             return nullptr;
@@ -270,9 +273,73 @@ namespace nova {
     }
 
     // Parse an import declaration
+    // Handles:
+    //   import "path"                     - namespace import
+    //   import { symbol } from "path"     - selective import
+    //   import { symbol as alias } from "path" - selective import with alias
     DeclPtr Parser::parseImportDecl() {
         auto import = std::make_unique<ImportDecl>();
+        import->loc.line = peek().line;
+        import->loc.column = peek().column;
         
+        // Check if this is a selective import (starts with {)
+        if (check(TokenType::BraceOpen)) {
+            import->isSelective = true;
+            advance(); // consume {
+            
+            // Parse symbol list
+            while (!check(TokenType::BraceClose) && !isAtEnd()) {
+                // Skip commas
+                if (check(TokenType::Comma)) {
+                    advance();
+                    continue;
+                }
+                
+                // Expect identifier for symbol name
+                if (!check(TokenType::Identifier)) {
+                    error("Expected symbol name in import");
+                    return nullptr;
+                }
+                
+                ImportSymbol symbol;
+                symbol.originalName = peek().value;
+                advance();
+                
+                // Check for 'as' alias
+                if (check(TokenType::Keyword) && peek().value == "as") {
+                    advance(); // consume 'as'
+                    if (!check(TokenType::Identifier)) {
+                        error("Expected alias name after 'as'");
+                        return nullptr;
+                    }
+                    symbol.alias = peek().value;
+                    advance();
+                }
+                
+                import->symbols.push_back(symbol);
+                
+                // Skip commas
+                if (check(TokenType::Comma)) {
+                    advance();
+                }
+            }
+            
+            // Expect closing brace
+            if (!check(TokenType::BraceClose)) {
+                error("Expected '}' after import symbols");
+                return nullptr;
+            }
+            advance(); // consume }
+            
+            // Expect 'from' keyword
+            if (!check(TokenType::Keyword) || peek().value != "from") {
+                error("Expected 'from' after import symbols");
+                return nullptr;
+            }
+            advance(); // consume 'from'
+        }
+        
+        // Parse the module path (string literal)
         if (!check(TokenType::String)) {
             error("Expected string literal for import path");
             return nullptr;
@@ -284,10 +351,7 @@ namespace nova {
         }
         
         import->path = path;
-        import->loc.line = peek().line;
-        import->loc.column = peek().column;
-        
-        advance(); 
+        advance();
         
         return import;
     }
@@ -527,7 +591,7 @@ namespace nova {
                     if (check(TokenType::Identifier)) {
                         std::string nextType = peek().value;
                         if (nextType == "int" || nextType == "string" || nextType == "float" || 
-                            nextType == "bool" || nextType == "auto" || nextType == "list") {
+                            nextType == "bool" || nextType == "auto" || nextType == "list" || isStructType(nextType)) {
                             // It's a variable declaration
                             auto decl = parseVarDecl();
                             if (decl) {
@@ -598,7 +662,7 @@ namespace nova {
         if (check(TokenType::Identifier)) {
             // peek ahead: type + identifier pattern indicates variable declaration, even without 'auto' keyword (for REPL)
             std::string nextType = peek().value;
-            if (nextType == "int" || nextType == "string" || nextType == "float" || nextType == "bool" || nextType == "auto" || nextType == "list" || nextType == "any") {
+            if (nextType == "int" || nextType == "string" || nextType == "float" || nextType == "bool" || nextType == "auto" || nextType == "list" || nextType == "any" || isStructType(nextType)) {
                 auto decl = parseVarDecl();
                 if (decl) {
                     auto declStmt = std::make_unique<DeclStmt>(std::move(decl));

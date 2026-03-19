@@ -3,6 +3,7 @@
 #include <memory>
 #include <string>
 #include <stdexcept>
+#include <unordered_set>
 #include "lexer.h"
 #include "ast.h"
 
@@ -66,6 +67,11 @@ private:
     const std::vector<Token>& tokens;
     size_t current = 0;
     std::vector<ParseError> errors;
+    std::unordered_set<std::string> structNames;  // Track declared struct types
+
+public:
+    void addStructName(const std::string& name) { structNames.insert(name); }
+    bool isStructType(const std::string& name) const { return structNames.count(name) > 0; }
 
     const Token& peek() const;
     const Token& previous() const;
