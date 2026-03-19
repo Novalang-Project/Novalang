@@ -106,7 +106,7 @@ namespace nova {
         if (check(TokenType::Identifier)) {
             std::string typeName = peek().value;
             
-            if (typeName == "int" || typeName == "string" || typeName == "float" || typeName == "bool" || typeName == "auto" || typeName == "list") {
+            if (typeName == "int" || typeName == "string" || typeName == "float" || typeName == "bool" || typeName == "auto" || typeName == "list" || typeName == "any") {
                 advance();
                 type = std::make_unique<SimpleType>(typeName);
                 type->loc.line = previous().line;
@@ -598,7 +598,7 @@ namespace nova {
         if (check(TokenType::Identifier)) {
             // peek ahead: type + identifier pattern indicates variable declaration, even without 'auto' keyword (for REPL)
             std::string nextType = peek().value;
-            if (nextType == "int" || nextType == "string" || nextType == "float" || nextType == "bool" || nextType == "auto" || nextType == "list") {
+            if (nextType == "int" || nextType == "string" || nextType == "float" || nextType == "bool" || nextType == "auto" || nextType == "list" || nextType == "any") {
                 auto decl = parseVarDecl();
                 if (decl) {
                     auto declStmt = std::make_unique<DeclStmt>(std::move(decl));

@@ -232,7 +232,26 @@ struct VMValue {
     bool isStruct() const { return std::holds_alternative<std::shared_ptr<StructData>>(data); }
     bool isNone() const { return std::holds_alternative<std::nullptr_t>(data); }
 
-    
+    enum class VMType {
+        Int,
+        Float,
+        String,
+        Bool,
+        List,
+        Struct,
+        None
+    };
+
+    VMType type() const {
+        if (isInteger()) return VMType::Int;
+        if (isFloat()) return VMType::Float;
+        if (isString()) return VMType::String;
+        if (isBool()) return VMType::Bool;
+        if (isList()) return VMType::List;
+        if (isStruct()) return VMType::Struct;
+        return VMType::None;
+    }
+
     // Conversions
     int64_t asInteger() const { return std::get<int64_t>(data); }
     double asFloat() const { 

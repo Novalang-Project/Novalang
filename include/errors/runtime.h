@@ -24,8 +24,8 @@ namespace nova {
         int column;
         
         static std::string formatMessage(const std::string& message, int line, int column) {
-            return "Runtime error encountered at line " + std::to_string(line) + 
-                   ", column " + std::to_string(column) + ": " + message;
+            return "Thrown at line " + std::to_string(line) + 
+                   ", column " + std::to_string(column) + " - " + message;
         }
     };
     
@@ -64,7 +64,21 @@ namespace nova {
             : RuntimeError(buildMessage(varName), line, column) {}
     private:
         static std::string buildMessage(const std::string& varName) {
-            return "Undefined variable: \"" + varName + "\" - make sure it is defined before use";
+            return "Undefined Variable: Assignment to undeclared variable \"" + varName + "\" - make sure it is defined before use";
+        }
+    };
+
+    /**
+     * Error thrown when the user is trying to assign a value to a global variable that has not been declared as global
+     * Example: trying to assign to 'int x = 1' inside a function: 'x = 1' but the user didn't declare it as 'global x'
+     */
+    class AssigmentToGlobalVariableError : public RuntimeError {
+    public:
+        AssigmentToGlobalVariableError(int line, int column, const std::string& varName)
+            : RuntimeError(buildMessage(varName), line, column) {}
+    private:
+        static std::string buildMessage(const std::string& varName) {
+            return "Assigment to Global Variable Error: \"" + varName + "\" - declare it with 'global' keyword before using it in local scope.";
         }
     };
 
@@ -93,6 +107,20 @@ namespace nova {
     private:
         static std::string buildMessage(const std::string& details) {
             return "Argument error: " + details;
+        }
+    };
+
+    /**
+     * Error thrown when an imported library is not found.
+     * Example: importing "core/shell" but the folder or the shell file doesnt exist.
+     */
+    class ImportError : public RuntimeError {
+    public:     
+        ImportError(int line, int column, const std::string& module)
+            : RuntimeError(buildMessage(module), line, column) {}
+    private:
+        static std::string buildMessage(const std::string& module) {
+            return "Import Error! Cannot find import: " + module;
         }
     };
 

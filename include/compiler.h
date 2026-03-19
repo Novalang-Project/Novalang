@@ -17,12 +17,31 @@ class Compiler {
 public:
     Compiler();
 
+    enum class DeclaredType {
+        Int,
+        Float,
+        String,
+        Bool,
+        List,
+        Struct,
+        Any,
+        Auto,
+        Unknown
+    };
+
+    struct VariableInfo {
+        int slot;
+        DeclaredType type;
+        bool initialized = false;  // Track if variable has been assigned a value
+    };
+
     // Compile a program AST to bytecode
     BytecodeProgram compile(Program& program);
 
 private:
     std::unique_ptr<BytecodeProgram> program;
     int currentLine = 1;
+    int currentCol = 0;
 
     // Current function being compiled
     BytecodeFunction* currentFunction = nullptr;
@@ -34,7 +53,7 @@ private:
     int prevFunctionIndex = -1;
 
     // Local variable tracking
-    std::unordered_map<std::string, int> localVariables;
+    std::unordered_map<std::string, VariableInfo> localVariables;
     int localCount = 0;
     
     // Global variables declared with 'global' keyword in current function
@@ -43,12 +62,15 @@ private:
     // All declared global variables (for semantic analysis)
     std::unordered_set<std::string> declaredGlobals;
     
+    // Global variable types (for type checking)
+    std::unordered_map<std::string, VariableInfo> globalVariablesInfo;
+    
     // Scope stack for proper block-level scoping
-    std::vector<std::unordered_map<std::string, int>> scopeStack;
+    std::vector<std::unordered_map<std::string, VariableInfo>> scopeStack;
     std::vector<int> scopeLocalCount;
     
     // Saved local variables for nested function scopes
-    std::vector<std::unordered_map<std::string, int>> savedLocalVariables;
+    std::vector<std::unordered_map<std::string, VariableInfo>> savedLocalVariables;
     std::vector<int> savedLocalCount;
 
     // Saved global variables for nested function scopes
@@ -73,6 +95,9 @@ private:
     // Track if current function has explicit return
     bool currentFunctionHasReturn = false;
 
+    // Strict mode for stricter type checking (disabled by default, restricts any usage and function argument type checks)
+    bool strictMode = false;
+
     // Helper methods for compiling expressions
     void compileExpression(Expression& expr);
     void compileLiteral(LiteralExpr& expr);
@@ -90,7 +115,8 @@ private:
     // Helper methods for compiling statements
     void compileStatement(Statement& stmt);
     void compileBlock(BlockStmt& block, bool createScope = false);
-    void compileVarDecl(VarDecl& decl);
+    DeclaredType resolveDeclaredType(const TypePtr &type);
+    void compileVarDecl(VarDecl &decl);
     void compileFuncDecl(FuncDecl& decl);
     void compileStructDecl(StructDecl& decl);
     void compileIf(IfStmt& stmt);
@@ -117,6 +143,7 @@ private:
 
     // Helper to get/set current line
     void setLine(int line) { currentLine = line; }
+    void setCol(int col) { currentCol = col; }
 
     // Get or add string to constant pool
     int addString(const std::string& s);
@@ -131,6 +158,15 @@ private:
     
     // Find variable slot in any scope (returns pair of found and slot index)
     std::pair<bool, int> findVariableInAnyScope(const std::string& name);
+    
+    // Find variable info in any scope (returns pair of found and VariableInfo)
+    std::pair<bool, VariableInfo> findVariableInfoInAnyScope(const std::string& name);
+    
+    // Infer type from an expression (for 'auto' type)
+    DeclaredType inferTypeFromExpression(Expression& expr);
+    
+    // Check type compatibility
+    bool checkTypeCompatibility(DeclaredType declared, DeclaredType actual);
     
     // Import handling
     std::optional<std::string> resolveImportPath(const std::string& path, const std::string& currentFileDir);

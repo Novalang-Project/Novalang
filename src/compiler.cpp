@@ -174,7 +174,8 @@ void Compiler::compileExpression(Expression& expr) {
 // Supports integers, floats, booleans, strings, and 'none'.
 void Compiler::compileLiteral(LiteralExpr& expr) {
     setLine(expr.loc.line);
-    
+    setCol(expr.loc.column);
+
     switch (expr.kind) {
         case LiteralExpr::LitKind::Boolean:
             if (expr.raw == "true") {
@@ -205,6 +206,7 @@ void Compiler::compileBinary(BinaryExpr& expr) {
     compileExpression(*expr.right);
     
     setLine(expr.loc.line);
+    setCol(expr.loc.column);
     
     if (expr.op == "+") {
         emit(OpCode::ADD);
@@ -251,7 +253,8 @@ void Compiler::compileUnary(UnaryExpr& expr) {
     compileExpression(*expr.operand);
     
     setLine(expr.loc.line);
-    
+    setCol(expr.loc.column);
+
     if (expr.op == "-") {
         emit(OpCode::NEG);
     } else if (expr.op == "!") {
@@ -268,7 +271,7 @@ void Compiler::compileUnary(UnaryExpr& expr) {
                 // At top level, allow incrementing declared globals
                 emitString(OpCode::STORE_GLOBAL, ident->name);
             } else if (functionDepth > 0) {
-                throw std::runtime_error("Use 'global' keyword to modify '" + ident->name + "' inside a function");
+                throw AssigmentToGlobalVariableError(currentLine,currentCol,ident->name);
             }
         }
     } else if (expr.op == "--") {
@@ -283,7 +286,7 @@ void Compiler::compileUnary(UnaryExpr& expr) {
                 // At top level, allow decrementing declared globals
                 emitString(OpCode::STORE_GLOBAL, ident->name);
             } else if (functionDepth > 0) {
-                throw std::runtime_error("Use 'global' keyword to modify '" + ident->name + "' inside a function");
+                throw AssigmentToGlobalVariableError(currentLine,currentCol,ident->name);
             }
         }
     } else if (expr.op == "~") {
@@ -296,7 +299,8 @@ void Compiler::compileUnary(UnaryExpr& expr) {
 // and defaults to loading a global variable if not found locally.
 void Compiler::compileIdentifier(IdentifierExpr& expr) {
     setLine(expr.loc.line);
-    
+    setCol(expr.loc.column);
+
     auto [found, slot] = findVariableInAnyScope(expr.name);
     if (found) {
         emitInt(OpCode::LOAD_LOCAL, slot);
@@ -310,7 +314,7 @@ void Compiler::compileIdentifier(IdentifierExpr& expr) {
     }
     
     // Variable not found - error
-    throw std::runtime_error("Undefined variable: '" + expr.name + "'");
+    throw UndefinedVariableError(currentLine, currentCol, expr.name);
 }
 
 // Compile an assignment expression, handling different target types:
@@ -352,6 +356,55 @@ void Compiler::compileAssignment(AssignmentExpr& expr) {
             }
         }
         
+        // Type checking for assigned variables (not just in strict mode)
+        auto [found, varInfo] = findVariableInfoInAnyScope(ident->name);
+        if (found) {
+            // Get the actual type from the value
+            DeclaredType actualType = inferTypeFromExpression(*expr.value);
+            
+            // Check if we need to enforce type checking
+            bool enforceTypeCheck = false;
+            
+            if (varInfo.type == DeclaredType::Any) {
+                // 'any' type: only enforce in strict mode
+                enforceTypeCheck = strictMode;
+            } else if (varInfo.type == DeclaredType::Auto || varInfo.type == DeclaredType::Unknown) {
+                // 'auto' or untyped: if already initialized, enforce the inferred type
+                enforceTypeCheck = varInfo.initialized;
+            } else {
+                // Explicit type (int, float, string, etc.): always enforce in both modes
+                enforceTypeCheck = true;
+            }
+            
+            if (enforceTypeCheck && !checkTypeCompatibility(varInfo.type, actualType)) {
+                throw TypeError(currentLine, currentCol, "Cannot assign '" + 
+                    std::string(actualType == DeclaredType::Int ? "int" :
+                               actualType == DeclaredType::Float ? "float" :
+                               actualType == DeclaredType::String ? "string" :
+                               actualType == DeclaredType::Bool ? "bool" :
+                               actualType == DeclaredType::List ? "list" :
+                               actualType == DeclaredType::Struct ? "struct" : "unknown") +
+                    "' to variable '" + ident->name + "' of type '" +
+                    std::string(varInfo.type == DeclaredType::Int ? "int" :
+                              varInfo.type == DeclaredType::Float ? "float" :
+                              varInfo.type == DeclaredType::String ? "string" :
+                              varInfo.type == DeclaredType::Bool ? "bool" :
+                              varInfo.type == DeclaredType::List ? "list" :
+                              varInfo.type == DeclaredType::Struct ? "struct" :
+                              varInfo.type == DeclaredType::Auto ? "auto" :
+                              varInfo.type == DeclaredType::Any ? "any" : "unknown") + "'");
+            }
+            
+            // If 'auto' was used and not yet initialized, lock the type
+            if ((varInfo.type == DeclaredType::Auto || varInfo.type == DeclaredType::Unknown) && !varInfo.initialized) {
+                // Update the variable type to the inferred type
+                if (localVariables.find(ident->name) != localVariables.end()) {
+                    localVariables[ident->name].type = actualType;
+                    localVariables[ident->name].initialized = true;
+                }
+            }
+        }
+        
         if (globalVariables.find(ident->name) != globalVariables.end()) {
             emitString(OpCode::STORE_GLOBAL, ident->name);
         } else {
@@ -362,10 +415,10 @@ void Compiler::compileAssignment(AssignmentExpr& expr) {
                 if (declaredGlobals.find(ident->name) != declaredGlobals.end()) {
                     emitString(OpCode::STORE_GLOBAL, ident->name);
                 } else {
-                    throw std::runtime_error("Assignment to undeclared variable: '" + ident->name + "'");
+                    throw UndefinedVariableError(currentLine, currentCol, ident->name);
                 }
             } else {
-                throw std::runtime_error("Use 'global' keyword to assign to '" + ident->name + "' inside a function");
+                throw AssigmentToGlobalVariableError(currentLine,currentCol, ident->name);
             }
         }
         return;
@@ -482,6 +535,7 @@ void Compiler::compileIndex(IndexExpr& expr) {
     compileExpression(*expr.index);
     
     setLine(expr.loc.line);
+    setCol(expr.loc.column);
     emit(OpCode::INDEX_GET);
 }
 
@@ -574,8 +628,18 @@ void Compiler::compileBlock(BlockStmt& block, bool createScope) {
 // Handles optional initialization and determines whether the variable
 // is global (top-level) or local (inside a function).
 void Compiler::compileVarDecl(VarDecl& decl) {
+    // Resolve the declared type from the AST
+    DeclaredType declaredType = resolveDeclaredType(decl.type);
+    
+    bool hasInitializer = (decl.init != nullptr);
+    
     if (decl.init) {
         compileExpression(*decl.init);
+        
+        // If declared type is auto, infer from initializer
+        if (declaredType == DeclaredType::Auto) {
+            declaredType = inferTypeFromExpression(*decl.init);
+        }
     } else {
         emit(OpCode::PUSH_NIL);
     }
@@ -584,13 +648,14 @@ void Compiler::compileVarDecl(VarDecl& decl) {
     
     if (isGlobal) {
         declaredGlobals.insert(decl.name);
+        globalVariablesInfo[decl.name] = {-1, declaredType, hasInitializer};
         emitString(OpCode::STORE_GLOBAL, decl.name);
     } else {
         if (localVariables.find(decl.name) == localVariables.end()) {
-            localVariables[decl.name] = localCount++;
+            localVariables[decl.name] = {localCount++, declaredType, hasInitializer};
             currentFunction->locals.push_back(decl.name);
         }
-        emitInt(OpCode::STORE_LOCAL, localVariables[decl.name]);
+        emitInt(OpCode::STORE_LOCAL, localVariables[decl.name].slot);
     }
     emit(OpCode::POP);
 }
@@ -603,7 +668,8 @@ void Compiler::compileFuncDecl(FuncDecl& decl) {
     newFunc->numParams = decl.params.size();
     
     for (auto& param : decl.params) {
-        localVariables[param.name] = localCount++;
+        DeclaredType paramType = resolveDeclaredType(param.type);
+        localVariables[param.name] = {localCount++, paramType};
         newFunc->locals.push_back(param.name);
     }
     
@@ -752,8 +818,9 @@ void Compiler::compileForIn(ForInStmt& stmt) {
     loopStack.push_back(LoopContext());
     LoopContext& loop = loopStack.back();
     
+    // For-in loop variables are inferred as Unknown (dynamic)
     if (localVariables.find(stmt.varName) == localVariables.end()) {
-        localVariables[stmt.varName] = localCount++;
+        localVariables[stmt.varName] = {localCount++, DeclaredType::Unknown};
         currentFunction->locals.push_back(stmt.varName);
     }
     
@@ -781,7 +848,7 @@ void Compiler::compileForIn(ForInStmt& stmt) {
     
     emitInt(OpCode::LOAD_LOCAL, idxIdx);
     emit(OpCode::INDEX_GET);
-    emitInt(OpCode::STORE_LOCAL, localVariables[stmt.varName]);
+    emitInt(OpCode::STORE_LOCAL, localVariables[stmt.varName].slot);
     
     compileBlock(stmt.body, true);
     
@@ -855,7 +922,7 @@ void Compiler::compileImport(ImportDecl& decl) {
     std::optional<std::string> resolvedPath = resolveImportPath(importPath, currentFileDir);
     
     if (!resolvedPath) {
-        throw std::runtime_error("Cannot find import: " + importPath);
+        throw ImportError(currentLine,currentCol,importPath);
     }
     
     std::string fullPath = *resolvedPath;
@@ -987,30 +1054,35 @@ void Compiler::compileDeclStmt(DeclStmt& stmt) {
 void Compiler::emit(OpCode op) {
     Instruction instr(op);
     instr.line = currentLine;
+    instr.column = currentCol;
     currentFunction->instructions.push_back(instr);
 }
 
 void Compiler::emitInt(OpCode op, int64_t operand) {
     Instruction instr(op, operand);
     instr.line = currentLine;
+    instr.column = currentCol;
     currentFunction->instructions.push_back(instr);
 }
 
 void Compiler::emitDouble(OpCode op, double operand) {
     Instruction instr(op, operand);
     instr.line = currentLine;
+    instr.column = currentCol;
     currentFunction->instructions.push_back(instr);
 }
 
 void Compiler::emitString(OpCode op, const std::string& operand) {
     Instruction instr(op, operand);
     instr.line = currentLine;
+    instr.column = currentCol;
     currentFunction->instructions.push_back(instr);
 }
 
 size_t Compiler::emitJump(OpCode op) {
     Instruction instr(op, static_cast<int64_t>(0));
     instr.line = currentLine;
+    instr.column = currentCol;
     currentFunction->instructions.push_back(instr);
     return currentFunction->instructions.size() - 1;
 }
@@ -1018,6 +1090,7 @@ size_t Compiler::emitJump(OpCode op) {
 size_t Compiler::emitJumpWithOffset(OpCode op, int64_t offset) {
     Instruction instr(op, offset);
     instr.line = currentLine;
+    instr.column = currentCol;
     currentFunction->instructions.push_back(instr);
     return currentFunction->instructions.size() - 1;
 }
@@ -1121,6 +1194,24 @@ void Compiler::exitScope() {
 std::pair<bool, int> Compiler::findVariableInAnyScope(const std::string& name) {
     auto it = localVariables.find(name);
     if (it != localVariables.end()) {
+        return {true, it->second.slot};
+    }
+    
+    for (auto it = scopeStack.rbegin(); it != scopeStack.rend(); ++it) {
+        auto varIt = it->find(name);
+        if (varIt != it->end()) {
+            return {true, varIt->second.slot};
+        }
+    }
+    
+    return {false, -1};
+}
+
+// Find variable info in any scope level (current or outer scopes)
+// Returns {found, VariableInfo}
+std::pair<bool, Compiler::VariableInfo> Compiler::findVariableInfoInAnyScope(const std::string& name) {
+    auto it = localVariables.find(name);
+    if (it != localVariables.end()) {
         return {true, it->second};
     }
     
@@ -1131,7 +1222,104 @@ std::pair<bool, int> Compiler::findVariableInAnyScope(const std::string& name) {
         }
     }
     
-    return {false, -1};
+    // Also check global variables
+    auto globalIt = globalVariablesInfo.find(name);
+    if (globalIt != globalVariablesInfo.end()) {
+        return {true, globalIt->second};
+    }
+    
+    return {false, {-1, DeclaredType::Unknown, false}};
+}
+
+// Resolve a declared type from AST type node
+Compiler::DeclaredType Compiler::resolveDeclaredType(const TypePtr& type) {
+    if (!type) {
+        return DeclaredType::Auto; 
+    }
+    
+    if (auto* simple = dynamic_cast<SimpleType*>(type.get())) {
+        std::string name = simple->name;
+        
+        if (name == "int") return DeclaredType::Int;
+        if (name == "float") return DeclaredType::Float;
+        if (name == "string" || name == "str") return DeclaredType::String;
+        if (name == "bool") return DeclaredType::Bool;
+        if (name == "list") return DeclaredType::List;
+        if (name == "auto") return DeclaredType::Auto;
+        if (name == "any") return DeclaredType::Any;
+        
+        // Unknown identifiers are treated as Struct
+        return DeclaredType::Struct;
+    }
+    
+    if (auto* listType = dynamic_cast<ListType*>(type.get())) {
+        return DeclaredType::List;
+    }
+    
+    return DeclaredType::Unknown;
+}
+
+// Infer type from an expression (for 'auto' type inference)
+Compiler::DeclaredType Compiler::inferTypeFromExpression(Expression& expr) {
+    if (auto* lit = dynamic_cast<LiteralExpr*>(&expr)) {
+        switch (lit->kind) {
+            case LiteralExpr::LitKind::Integer:
+                return DeclaredType::Int;
+            case LiteralExpr::LitKind::Float:
+                return DeclaredType::Float;
+            case LiteralExpr::LitKind::String:
+                return DeclaredType::String;
+            case LiteralExpr::LitKind::Boolean:
+                return DeclaredType::Bool;
+            case LiteralExpr::LitKind::None:
+                return DeclaredType::Unknown;  // None can be anything
+        }
+    }
+    
+    if (auto* list = dynamic_cast<ListExpr*>(&expr)) {
+        return DeclaredType::List;
+    }
+    
+    if (auto* structExpr = dynamic_cast<StructExpr*>(&expr)) {
+        return DeclaredType::Struct;
+    }
+    
+    if (auto* ident = dynamic_cast<IdentifierExpr*>(&expr)) {
+        auto [found, varInfo] = findVariableInfoInAnyScope(ident->name);
+        if (found) {
+            return varInfo.type;
+        }
+    }
+    
+    // For function calls, we can't easily determine return type at compile time
+    // Default to Unknown (dynamic)
+    return DeclaredType::Unknown;
+}
+
+// Check type compatibility
+// Returns true if actual type can be assigned to declared type
+bool Compiler::checkTypeCompatibility(DeclaredType declared, DeclaredType actual) {
+    if (declared == DeclaredType::Any) {
+        return true;
+    }
+    
+    if (declared == DeclaredType::Auto) {
+        return true;
+    }
+    
+    if (declared == DeclaredType::Unknown) {
+        return true;
+    }
+    
+    if (declared == actual) {
+        return true;
+    }
+    
+    if (declared == DeclaredType::Float && actual == DeclaredType::Int) {
+        return true;
+    }
+    
+    return false;
 }
 
 }
