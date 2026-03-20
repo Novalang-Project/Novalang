@@ -1,8 +1,0 @@
-// Test function local scoping error
-
-
-func test() {
-    int localX = 10
-}
-
-println(localX)

@@ -2,7 +2,6 @@
 /build
 /build/CMakeFiles
 /.vscode
-test_std.nv
 *.cnv
 test.nv
 syntax_and_plan.nova

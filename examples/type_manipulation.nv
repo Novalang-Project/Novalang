@@ -1,0 +1,19 @@
+
+func print(string: str)
+{
+    println(string)
+}
+
+func main()
+{
+    int x = 3
+    string y = "67"
+    float z = 3.14
+
+    print(toString(x) + 3) # becomes 33
+    print(y + 3) # becomes 673
+    print(toInt(y) + 3) # becomes 67+3 = 70
+    print(toInt(z)) # becomes 3
+
+    return 0
+}

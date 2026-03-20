@@ -1,3 +1,0 @@
-# Test nested indexing
-list matrix = [[1, 2], [3, 4]]
-matrix[0]

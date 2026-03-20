@@ -1,4 +1,8 @@
 // --- Math utilities ---
+ 
+const float PI = 3.141592653589793
+const float TAU = 6.283185307179586   // 2 * PI
+const float E   = 2.718281828459045
 
 func max(a: int, b: int) -> int {
     if (a > b) { return a } else { return b }

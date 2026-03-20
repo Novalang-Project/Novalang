@@ -1,9 +1,0 @@
-// Test for-in loop
-list items = [1, 2, 3, 4, 5]
-int count = 0
-for(item in items) {  
-    println(item)
-    count = count + 1
-}
-println("Count:")
-println(count)

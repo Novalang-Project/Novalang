@@ -4,6 +4,9 @@
 
 using namespace nova;
 
+// currently not used
+
+
 void AstPrinter::indent() {
     for (int i = 0; i < indentLevel; ++i) out << "  ";
 }

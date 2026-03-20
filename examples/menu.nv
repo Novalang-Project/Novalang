@@ -1,0 +1,34 @@
+import "input"
+
+func showMenu() {
+    println("== MENU ==")
+    println("1. Say Hello")
+    println("2. Add numbers")
+    println("3. Exit")
+}
+
+func addNumbers(a: int, b: int) -> int {
+    return a + b
+}
+
+func main() {
+    auto choice = 0
+    while (choice != 3) {
+        showMenu()
+        println("Enter choice:")
+        auto choice = input()  
+
+        if (choice == "1") {
+            println("Hello, NovaLang user!")
+        } else if(choice == "2") {
+            int x = input.inputInt("Enter first number: ")
+            int y = input.inputInt("Enter second number: ")
+            println("Sum is: " + addNumbers(x, y))
+        } else if (choice == "3") {
+            println("Exiting…")
+            return
+        } else {
+            println("Invalid choice")
+        }
+    }
+}

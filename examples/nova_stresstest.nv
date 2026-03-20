@@ -1,8 +1,9 @@
-import "strings"
+import {concat} from "strings"
 import "math"
 
 // recursive fibonacci
-func fib(int n) {
+func fib(int n) -> int
+{
     if (n < 2) {
         return n
     }
@@ -11,7 +12,8 @@ func fib(int n) {
 }
 
 // sum numbers with loop
-func sumTo(int n) {
+func sumTo(int n) -> int
+{
 
     auto total = 0
     auto i = 0
@@ -25,7 +27,8 @@ func sumTo(int n) {
 }
 
 // heavy loop test
-func loopStress() {
+func loopStress() -> int 
+{
 
     auto i = 0
     auto acc = 0
@@ -39,18 +42,16 @@ func loopStress() {
 }
 
 // nested function calls
-func nestedCalls(int x) {
+func nestedCalls(int x) -> int
+{
 
-    return square(abs(x)) + cube(sign(x))
+    return math.square(math.abs(x)) + math.cube(math.sign(x))
 }
 
 func main() {
-
     println("== VM TEST ==")
-
     println(concat("fib(10): ", fib(10)))
     println(concat("sumTo(100): ", sumTo(100)))
-
     println(concat("loop stress: ", loopStress()))
 
     println(concat("nestedCalls(-5): ", nestedCalls(-5)))

@@ -340,7 +340,29 @@ void Compiler::compileIdentifier(IdentifierExpr& expr) {
 // - Simple variable assignment (local or global)
 // Supports compound operators like +=, -=, *=, /=.
 void Compiler::compileAssignment(AssignmentExpr& expr) {
-    if (dynamic_cast<IndexExpr*>(expr.target.get())) {
+    if (auto* indexExpr = dynamic_cast<IndexExpr*>(expr.target.get())) {
+        if (auto* ident = dynamic_cast<IdentifierExpr*>(indexExpr->collection.get())) {
+            compileExpression(*indexExpr->collection);  
+            compileExpression(*indexExpr->index);        
+            compileExpression(*expr.value);             
+            emit(OpCode::INDEX_SET);
+            
+            // Store the modified collection back to the variable
+            if (globalVariables.find(ident->name) != globalVariables.end()) {
+                emitString(OpCode::STORE_GLOBAL, ident->name);
+            } else {
+                auto [found, slot] = findVariableInAnyScope(ident->name);
+                if (found) {
+                    emitInt(OpCode::STORE_LOCAL, slot);
+                } else if (functionDepth == 0) {
+                    if (declaredGlobals.find(ident->name) != declaredGlobals.end()) {
+                        emitString(OpCode::STORE_GLOBAL, ident->name);
+                    }
+                }
+            }
+            return;
+        }
+        
         compileExpression(*expr.target);
         compileExpression(*expr.value);
         emit(OpCode::INDEX_SET);
@@ -376,20 +398,14 @@ void Compiler::compileAssignment(AssignmentExpr& expr) {
         // Type checking for assigned variables (not just in strict mode)
         auto [found, varInfo] = findVariableInfoInAnyScope(ident->name);
         if (found) {
-            // Get the actual type from the value
             DeclaredType actualType = inferTypeFromExpression(*expr.value);
-            
-            // Check if we need to enforce type checking
-            bool enforceTypeCheck = false;
+                        bool enforceTypeCheck = false;
             
             if (varInfo.type == DeclaredType::Any) {
-                // 'any' type: only enforce in strict mode
                 enforceTypeCheck = strictMode;
             } else if (varInfo.type == DeclaredType::Auto || varInfo.type == DeclaredType::Unknown) {
-                // 'auto' or untyped: if already initialized, enforce the inferred type
                 enforceTypeCheck = varInfo.initialized;
             } else {
-                // Explicit type (int, float, string, etc.): always enforce in both modes
                 enforceTypeCheck = true;
             }
             
@@ -414,7 +430,6 @@ void Compiler::compileAssignment(AssignmentExpr& expr) {
             
             // If 'auto' was used and not yet initialized, lock the type
             if ((varInfo.type == DeclaredType::Auto || varInfo.type == DeclaredType::Unknown) && !varInfo.initialized) {
-                // Update the variable type to the inferred type
                 if (localVariables.find(ident->name) != localVariables.end()) {
                     localVariables[ident->name].type = actualType;
                     localVariables[ident->name].initialized = true;
@@ -450,6 +465,31 @@ void Compiler::compileAssignment(AssignmentExpr& expr) {
 // For built-ins that modify a local variable (push/pop/removeAt), the first
 // argument is checked to emit STORE_LOCAL for the result.
 void Compiler::compileCall(CallExpr& expr) {
+    // Handle namespace function calls: strings.concat(a, b)
+    if (auto* member = dynamic_cast<MemberExpr*>(expr.callee.get())) {
+        if (auto* ident = dynamic_cast<IdentifierExpr*>(member->object.get())) {
+            std::string nsName = ident->name;
+            std::string fieldName = member->field;
+            
+            auto nsIt = importedNamespaces.find(nsName);
+            if (nsIt != importedNamespaces.end()) {
+                const auto& symbols = nsIt->second;
+                if (symbols.find(fieldName) != symbols.end()) {
+                    // This is a namespace function call - emit as string call
+                    std::string fullName = nsName + "." + fieldName;
+                    emitString(OpCode::PUSH_STRING, fullName);
+                    
+                    for (auto& arg : expr.args) {
+                        compileExpression(*arg);
+                    }
+                    
+                    emitInt(OpCode::CALL, static_cast<int64_t>(expr.args.size()));
+                    return;
+                }
+            }
+        }
+    }
+    
     if (auto* ident = dynamic_cast<IdentifierExpr*>(expr.callee.get())) {
         std::string funcName = ident->name;
         
@@ -464,7 +504,7 @@ void Compiler::compileCall(CallExpr& expr) {
             }
         }
         
-        // Check if this is an aliased import - resolve to original function name
+        // Check if this is an aliased import, resolve to original function name
         auto aliasIt = selectiveImports.find(funcName);
         if (aliasIt != selectiveImports.end()) {
             std::string fullName = aliasIt->second;
@@ -475,7 +515,9 @@ void Compiler::compileCall(CallExpr& expr) {
         }
         
         if (funcName == "len" || funcName == "push" || funcName == "pop" || 
-            funcName == "println" || funcName == "removeAt" || funcName == "input") {
+            funcName == "println" || funcName == "removeAt" || funcName == "input" ||
+            funcName == "toInt" || funcName == "toFloat" || funcName == "toString" || funcName == "toBool" ||
+            funcName == "typeof") {
             int localIdx = -1;
             bool isPushPopRemoveAt = (funcName == "push" || funcName == "pop" || funcName == "removeAt");
             
@@ -494,13 +536,21 @@ void Compiler::compileCall(CallExpr& expr) {
             
             emitInt(OpCode::ARG_COUNT, static_cast<int64_t>(expr.args.size()));
             
+            // when adding a new builtin don't be stupid like me and dont forget to map it here D:
             static std::unordered_map<std::string, int> builtinMap = {
                 {"len", 0},
                 {"push", 1},
                 {"pop", 2},
                 {"println", 3},
                 {"removeAt", 4},
-                {"input", 5}
+                {"input", 5},
+                {"format", 6},
+                {"round", 7},
+                {"toInt", 8},
+                {"toFloat", 9},
+                {"toString", 10},
+                {"toBool", 11},
+                {"typeof", 12}
             };
             
             emitInt(OpCode::BUILTIN, builtinMap[funcName]);
@@ -529,6 +579,26 @@ void Compiler::compileCall(CallExpr& expr) {
 // The object is passed as the first argument, followed by the method arguments.
 // If the object is a local variable, the result is stored back to it.
 void Compiler::compileMethodCall(MethodCallExpr& expr) {
+    if (auto* ident = dynamic_cast<IdentifierExpr*>(expr.object.get())) {
+        std::string nsName = ident->name;
+        
+        auto nsIt = importedNamespaces.find(nsName);
+        if (nsIt != importedNamespaces.end()) {
+            const auto& symbols = nsIt->second;
+            if (symbols.find(expr.method) != symbols.end()) {
+                std::string fullName = nsName + "." + expr.method;
+                emitString(OpCode::PUSH_STRING, fullName);
+                
+                for (auto& arg : expr.args) {
+                    compileExpression(*arg);
+                }
+                
+                emitInt(OpCode::CALL, static_cast<int64_t>(expr.args.size()));
+                return;
+            }
+        }
+    }
+    
     std::string methodName = expr.method;
     
     if (methodName == "push" || methodName == "pop" || methodName == "removeAt") {
@@ -592,13 +662,11 @@ void Compiler::compileList(ListExpr& expr) {
 // Compiles the object and emits a FIELD_GET opcode to access the specified field.
 // Also validates namespace access for imported modules.
 void Compiler::compileMember(MemberExpr& expr) {
-    // Check if this is a namespace access (object is an identifier that matches an imported namespace)
     if (auto* ident = dynamic_cast<IdentifierExpr*>(expr.object.get())) {
         std::string nsName = ident->name;
         
         auto nsIt = importedNamespaces.find(nsName);
         if (nsIt != importedNamespaces.end()) {
-            // This is a namespace access - validate the symbol exists in the namespace
             const auto& symbols = nsIt->second;
             if (symbols.find(expr.field) == symbols.end()) {
                 throw ImportError(currentLine, currentCol,
@@ -804,7 +872,7 @@ void Compiler::compileWhile(WhileStmt& stmt) {
     
     size_t exitJump = emitJump(OpCode::JUMP_IF_FALSE);
     
-    // Note: Don't create a new scope here - the while loop body should share
+    // Note: Don't create a new scope here, the while loop body should share
     // the function's local scope. Block scoping is handled by if/for/etc at statement level.
     compileBlock(stmt.body);
     
@@ -1012,13 +1080,11 @@ void Compiler::compileImport(ImportDecl& decl) {
         for (const auto& symbol : decl.symbols) {
             std::string targetName = symbol.alias.empty() ? symbol.originalName : symbol.alias;
             
-            // Check if symbol exists in the module
             if (exportedSymbols.find(symbol.originalName) == exportedSymbols.end()) {
                 throw ImportError(currentLine, currentCol, 
                     "Symbol '" + symbol.originalName + "' not found in module '" + moduleName + "'");
             }
-            
-            // Check for collision with existing global symbols or current file's functions
+
             if (globalSymbols.find(targetName) != globalSymbols.end() ||
                 currentFileFunctions.find(targetName) != currentFileFunctions.end()) {
                 throw ImportError(currentLine, currentCol, 
@@ -1028,6 +1094,7 @@ void Compiler::compileImport(ImportDecl& decl) {
             
             // Add to global symbols and track the selective import
             globalSymbols.insert(targetName);
+            declaredGlobals.insert(targetName);
             selectiveImports[targetName] = moduleName + "." + symbol.originalName;
         }
     } else {
@@ -1097,7 +1164,7 @@ std::unordered_set<std::string> Compiler::compileImportFile(const std::string& f
     
     std::string savedFileDir = currentFileDir;
     std::unordered_set<std::string> savedFileFunctions = currentFileFunctions;
-    currentFileFunctions.clear();  // Clear for imported file
+    currentFileFunctions.clear(); 
     currentFileDir = importDir;
     
     Lexer lexer(source);
@@ -1131,7 +1198,9 @@ std::unordered_set<std::string> Compiler::compileImportFile(const std::string& f
         }
     }
     
-    // Second pass: compile all declarations
+    // Check if this is a namespace import (not selective)
+    bool isNamespaceImport = importedNamespaces.find(moduleName) != importedNamespaces.end();
+    
     for (auto& decl : importedProgram->decls) {
         if (auto* funcDecl = dynamic_cast<FuncDecl*>(decl.get())) {
             compileFuncDecl(*funcDecl);
@@ -1243,7 +1312,6 @@ BytecodeFunction* Compiler::enterFunction(const std::string& name) {
     savedLocalVariables.push_back(localVariables);
     savedLocalCount.push_back(localCount);
     
-    // Save current global variables to restore when exiting
     savedGlobalVariables.push_back(globalVariables);
     
     program->functions.push_back(BytecodeFunction());
@@ -1253,7 +1321,6 @@ BytecodeFunction* Compiler::enterFunction(const std::string& name) {
     localCount = 0;
     globalVariables.clear();
     
-    // Store previous function index for restoration
     prevFunctionIndex = prevIndex;
     
     // Increment function depth only for user-defined functions (not the initial main or _start)
@@ -1414,7 +1481,7 @@ Compiler::DeclaredType Compiler::inferTypeFromExpression(Expression& expr) {
     }
     
     // For function calls, we can't easily determine return type at compile time
-    // Default to Unknown (dynamic)
+    // Default to Unknown (dynamic) later we will implement return type checking
     return DeclaredType::Unknown;
 }
 

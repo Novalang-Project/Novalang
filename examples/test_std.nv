@@ -1,0 +1,55 @@
+import { concat, repeat } from "strings"
+import { clamp, sign, factorial, pow, PI } from "math"
+
+// Test consecutive ifs and early return
+func testIf(x: int) -> int {
+    if (x < 0) {
+        return -1
+    }
+    if (x == 0) {
+        return 0
+    }
+    if (x > 0) {
+        return 1
+    }
+    return 999 // should never hit
+}
+
+// Test clamp and sign
+func testClampSign() -> string {
+    auto a = clamp(-5, 0, 10)
+    auto b = clamp(15, 0, 10)
+    auto c = clamp(5, 0, 10)
+    auto s1 = sign(-100)
+    auto s2 = sign(0)
+    auto s3 = sign(42)
+    return concat(concat(concat(a, b), c), concat(concat(s1, s2), s3))
+}
+
+// Test loops: repeat, factorial, pow
+func testLoops() -> string {
+    auto r = repeat("x", 5) // expect "xxxxx"
+    auto f = factorial(5)   // expect 120
+    auto p = pow(2, 10)     // expect 1024
+    return concat(concat(r, f), p)
+}
+
+// Edge cases
+func testEdgeCases() -> string {
+    auto zeroFact = factorial(0)   // expect 1
+    auto onePow = pow(10, 0)       // expect 1
+    auto negSign = sign(-1)        // expect -1
+    auto posSign = sign(7)         // expect 1
+    return concat(concat(concat(zeroFact, onePow), negSign), posSign)
+}
+
+// Run all tests
+func main() {
+    println(concat("testIf -1: ", testIf(-7)))  // -1
+    println(concat("testIf 0: ", testIf(0)))    // 0
+    println(concat("testIf 5: ", testIf(5)))    // 1
+    println(concat("Clamp + Sign: ", testClampSign()))
+    println(concat("Loops: ", testLoops()))
+    println(concat("Edge cases: ", testEdgeCases()))
+    println(PI)
+}

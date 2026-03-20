@@ -1,9 +1,0 @@
-# A local helper library
-
-func greet(name: string) -> string {
-    return "Hello, " + name + "!"
-}
-
-func double(x: int) -> int {
-    return x * 2
-}

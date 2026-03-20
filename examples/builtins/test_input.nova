@@ -1,5 +1,0 @@
-auto name = input("Type in your name: ")
-println(name)
-
-auto age = input()
-println(age)

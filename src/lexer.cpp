@@ -89,11 +89,12 @@ namespace nova {
         return {TokenType::Identifier, value, startLine, startCol};
         }
 
-        // Numbers (integers and floats, support trailing 'f')
+        // Numbers (integers and floats)
         if (isdigit(static_cast<unsigned char>(c))) {
             std::string value;
-            NumberKind kind = NumberKind::Integer;  // default
+            NumberKind kind = NumberKind::Integer; 
 
+            // Integer part
             while (isdigit(static_cast<unsigned char>(peek()))) value += get();
 
             // Fractional part
@@ -103,21 +104,11 @@ namespace nova {
 
                 while (isdigit(static_cast<unsigned char>(peek()))) value += get();
 
-                // Optional 'f' suffix (C Like)
-                if (peek() == 'f') {
-                    value += get();
-                } 
-                // Any other alphabetic character is invalid
-                else if (isalpha(peek())) {
+                if (isalpha(peek())) {
                     std::string invalidSuffix(1, get()); 
                     throw InvalidNumberError(startLine, startCol, value + invalidSuffix);
                 }
             } 
-            else if (peek() == 'f') {
-                value += get();
-                kind = NumberKind::Float;
-            } 
-            // Trailing invalid alphabetic characters (like 54d) are invalid
             else if (isalpha(peek())) {
                 std::string invalidSuffix(1, get());
                 throw InvalidNumberError(startLine, startCol, value + invalidSuffix);

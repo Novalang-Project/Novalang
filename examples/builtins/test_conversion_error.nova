@@ -1,5 +1,0 @@
-// Test error handling for conversion functions
-
-// This should throw an error: toInt("not a number")
-println("Testing invalid toInt:")
-println(toInt("not_a_number"))

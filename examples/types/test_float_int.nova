@@ -1,3 +1,0 @@
-// Test int to float assignment (should work)
-float x = 3
-println(x)

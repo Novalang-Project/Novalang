@@ -1,7 +1,7 @@
 # --- String utilities ---
 
-func concat(a: string, b: string) -> string {
-    return a + b
+func concat(a, b) -> string {
+    return toString(a) + toString(b)
 }
 
 func repeat(s: string, times: int) -> string {

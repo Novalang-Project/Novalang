@@ -1,5 +1,0 @@
-list a = [1,2,3,4,6]
-
-push(6,7) # deprecated, replced with oop style a.push(7)
-
-pop(a) # deprecated, replaced with OOP style a.pop()

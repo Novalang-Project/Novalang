@@ -1,0 +1,35 @@
+/*
+*  Calculates pi decimals per iteration
+*  with the nilakantha algorithm.
+*  Higher the iteration count, the closer the number will be in precision to actual pi.
+*/
+func pi_nilakantha(iterations: int)
+{
+    float pi = 3.0
+    int i = 2
+    bool add = true
+
+    int count = 0
+    while (count < iterations)
+    {
+        float term = 4.0 / (i * (i + 1) * (i + 2))
+
+        if (add == true) {
+            pi = pi + term
+        } else {
+            pi = pi - term
+        }
+
+        add = !add
+        i = i + 2
+        count++
+    }
+
+    println(format(pi, 16)) 
+}
+
+// Main entry point.
+func main()
+{
+    pi_nilakantha(20000)
+}

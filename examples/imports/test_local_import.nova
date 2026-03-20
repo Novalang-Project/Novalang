@@ -1,8 +1,0 @@
-// Test importing from local library
-import "examples/imports/mylib/helper"
-
-string greeting = greet("World")
-println(greeting)
-
-int doubled = double(21)
-println("Double of 21:", doubled)

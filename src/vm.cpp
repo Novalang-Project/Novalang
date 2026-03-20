@@ -3,6 +3,7 @@
 #include <iostream>
 #include <cmath>
 #include <sstream>
+#include <iomanip>
 
 namespace nova {
 
@@ -10,9 +11,32 @@ namespace nova {
 // VMValue Implementation
 // ============================================================================
 
+// Helper function to format float with up to 16 decimals, removing trailing zeros
+static std::string formatFloat(double value) {
+    // Handle exact integers (like 1.0, 2.0) - show as integer
+    if (value == std::floor(value) && value == std::ceil(value)) {
+        return std::to_string(static_cast<long long>(value));
+    }
+    
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(16) << value;
+    std::string result = oss.str();
+    
+    if (result.find('.') != std::string::npos) {
+        while (!result.empty() && result.back() == '0') {
+            result.pop_back();
+        }
+        if (!result.empty() && result.back() == '.') {
+            result.pop_back();
+        }
+    }
+    
+    return result;
+}
+
 std::string VMValue::toString() const {
     if (isInteger()) return std::to_string(asInteger());
-    if (isFloat()) return std::to_string(asFloat());
+    if (isFloat()) return formatFloat(asFloat());
     if (isString()) return asString();
     if (isBool()) return asBool() ? "true" : "false";
     if (isList()) {
@@ -360,6 +384,104 @@ void VirtualMachine::setupBuiltins() {
         }
         return VMValue(true);
     };
+
+    // format - format float to specified decimal places
+    builtins["format"] = [](const std::vector<VMValue>& args) -> VMValue {
+        if (args.size() != 2) {
+            throw RuntimeError("format() expects 2 arguments", 0, 0);
+        }
+        const VMValue& value = args[0];
+        const VMValue& decimals = args[1];
+        
+        if (!value.isFloat()) {
+            throw RuntimeError("format() first argument must be a float", 0, 0);
+        }
+        if (!decimals.isInteger()) {
+            throw RuntimeError("format() second argument must be an integer", 0, 0);
+        }
+        
+        double val = value.asFloat();
+        int dec = static_cast<int>(decimals.asInteger());
+        
+        if (dec < 0) dec = 0;
+        if (dec > 16) dec = 16;
+        
+        std::ostringstream oss;
+        oss << std::fixed << std::setprecision(dec) << val;
+        std::string result = oss.str();
+        
+        // Remove trailing zeros after decimal point if not using fixed precision display
+        if (dec > 0) {
+            while (!result.empty() && result.back() == '0') {
+                result.pop_back();
+            }
+            if (!result.empty() && result.back() == '.') {
+                result.pop_back();
+            }
+        }
+        
+        return VMValue(result);
+    };
+
+    // round - round float to specified decimal places (returns string)
+    builtins["round"] = [](const std::vector<VMValue>& args) -> VMValue {
+        if (args.size() != 2) {
+            throw RuntimeError("round() expects 2 arguments", 0, 0);
+        }
+        const VMValue& value = args[0];
+        const VMValue& decimals = args[1];
+        
+        if (!value.isFloat()) {
+            throw RuntimeError("round() first argument must be a float", 0, 0);
+        }
+        if (!decimals.isInteger()) {
+            throw RuntimeError("round() second argument must be an integer", 0, 0);
+        }
+        
+        double val = value.asFloat();
+        int dec = static_cast<int>(decimals.asInteger());
+        
+        if (dec < 0) dec = 0;
+        if (dec > 16) dec = 16;
+        
+        // Use round-half-up rounding
+        double multiplier = std::pow(10.0, dec);
+        double rounded = std::round(val * multiplier) / multiplier;
+        
+        // Format the rounded value as string
+        std::ostringstream oss;
+        oss << std::fixed << std::setprecision(dec) << rounded;
+        std::string result = oss.str();
+        
+        // Remove trailing zeros after decimal point
+        if (dec > 0) {
+            while (!result.empty() && result.back() == '0') {
+                result.pop_back();
+            }
+            if (!result.empty() && result.back() == '.') {
+                result.pop_back();
+            }
+        }
+        
+        return VMValue(result);
+    };
+
+    // typeof - get type name of value
+    builtins["typeof"] = [](const std::vector<VMValue>& args) -> VMValue {
+        if (args.size() != 1) {
+            throw RuntimeError("typeof() expects 1 argument", 0, 0);
+        }
+        const VMValue& arg = args[0];
+        
+        if (arg.isNone()) return VMValue("none");
+        if (arg.isBool()) return VMValue("bool");
+        if (arg.isInteger()) return VMValue("int");
+        if (arg.isFloat()) return VMValue("float");
+        if (arg.isString()) return VMValue("string");
+        if (arg.isList()) return VMValue("list");
+        
+        return VMValue("unknown");
+    };
 }
 
 // Execute a bytecode program.
@@ -374,29 +496,20 @@ VMValue VirtualMachine::execute(BytecodeProgram& prog) {
     constants.clear();
     halted = false;
 
-    // Find the main function
+    // Find the _start function (entry point)
     if (prog.functions.empty()) {
         return VMValue(nullptr);
     }
 
     const BytecodeFunction* mainFn = nullptr;
     for (const auto& fn : prog.functions) {
-        if (fn.name == "main") {
+        if (fn.name == "_start") {
             mainFn = &fn;
             break;
         }
     }
     
-    // If no main function, try _start (entry point)
-    if (!mainFn) {
-        for (const auto& fn : prog.functions) {
-            if (fn.name == "_start") {
-                mainFn = &fn;
-                break;
-            }
-        }
-    }
-    
+    // If no _start function, fallback to first function
     if (!mainFn) {
         mainFn = &prog.functions[0];
     }
@@ -848,6 +961,13 @@ void VirtualMachine::executeInstruction(CallFrame& frame, const Instruction& ins
                 if (funcVal.isString()) {
                     std::string funcName = funcVal.asString();
                     
+                    // Handle namespace function calls: "namespace.function" -> "function"
+                    size_t dotPos = funcName.rfind('.');
+                    std::string lookupName = funcName;
+                    if (dotPos != std::string::npos) {
+                        lookupName = funcName.substr(dotPos + 1);
+                    }
+                    
                     std::vector<VMValue> args;
                     for (int i = 0; i < argCount; i++) {
                         args.insert(args.begin(), stack.back());
@@ -855,14 +975,14 @@ void VirtualMachine::executeInstruction(CallFrame& frame, const Instruction& ins
                     }
                     stack.pop_back();
 
-                    auto it = builtins.find(funcName);
+                    auto it = builtins.find(lookupName);
                     if (it != builtins.end()) {
                         VMValue result = it->second(args);
                         stack.push_back(result);
                     } else {
                         bool found = false;
                         for (size_t i = 0; i < program->functions.size(); i++) {
-                            if (program->functions[i].name == funcName) {
+                            if (program->functions[i].name == lookupName) {
                                 callFunction(program->functions[i], args);
                                 found = true;
                                 break;
@@ -918,6 +1038,13 @@ void VirtualMachine::executeInstruction(CallFrame& frame, const Instruction& ins
             else if (builtinIdx == 3) expectedArgs = pendingArgCount; // println (use arg count)
             else if (builtinIdx == 4) expectedArgs = 2;  // removeAt
             else if (builtinIdx == 5) expectedArgs = pendingArgCount; // input (use arg count)
+            else if (builtinIdx == 6) expectedArgs = 2;  // format
+            else if (builtinIdx == 7) expectedArgs = 2;  // round
+            else if (builtinIdx == 8) expectedArgs = 1;  // toInt
+            else if (builtinIdx == 9) expectedArgs = 1;  // toFloat
+            else if (builtinIdx == 10) expectedArgs = 1; // toString
+            else if (builtinIdx == 11) expectedArgs = 1; // toBool
+            else if (builtinIdx == 12) expectedArgs = 1; // typeof
             
             // Collect arguments from the stack
             std::vector<VMValue> args;
@@ -950,6 +1077,13 @@ void VirtualMachine::executeInstruction(CallFrame& frame, const Instruction& ins
             else if (builtinIdx == 3) funcName = "println";
             else if (builtinIdx == 4) funcName = "removeAt";
             else if (builtinIdx == 5) funcName = "input";
+            else if (builtinIdx == 6) funcName = "format";
+            else if (builtinIdx == 7) funcName = "round";
+            else if (builtinIdx == 8) funcName = "toInt";
+            else if (builtinIdx == 9) funcName = "toFloat";
+            else if (builtinIdx == 10) funcName = "toString";
+            else if (builtinIdx == 11) funcName = "toBool";
+            else if (builtinIdx == 12) funcName = "typeof";
             
             auto it = builtins.find(funcName);
             if (it != builtins.end()) {
@@ -1034,6 +1168,8 @@ void VirtualMachine::executeInstruction(CallFrame& frame, const Instruction& ins
                         throw RuntimeError("index out of bounds", currentLine, 0);
                     }
                     list[idx] = value;
+                    // Push the modified collection back onto the stack
+                    stack.push_back(collection);
                 } else {
                     throw RuntimeError("can only assign to list elements", currentLine, 0);
                 }
