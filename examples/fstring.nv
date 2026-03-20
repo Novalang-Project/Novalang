@@ -1,0 +1,8 @@
+// Test f-string with multiple variables
+string greeting = "Hello"
+int age = 25
+float score = 95.5
+
+println(f"Name: {greeting}, Age: {age}, Score: {score}")
+
+println(f"You are {age} years old and your score is {score}!")

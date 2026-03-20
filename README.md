@@ -245,11 +245,53 @@ A modular system for organizing and reusing code.
 
 ```py
 import "math" # imports all available variables/functions into the modules namespace
-import { range } from "lists" # imports specified functions to the global scope
+import { range } from "lists" # imports specified functions or variables to the global scope
 
 println(range(1,6)) # not namespaced as its a specified import
 
 println(math.square(3)) # default namespacing
+```
+
+### File I/O
+
+Nova provides simple and intuitive file handling utilities, inspired by Python-like syntax. You can work with files either through **convenience functions** or **file handles** for more control.
+
+```cpp
+// Write to a file (creates or overwrites)
+write_file("test_output.txt", "Hello from NovaLang!")
+
+// Read the contents of a file
+string content = read_file("test_output.txt")
+println(content)
+
+// Read a single line from a file
+int file = open("test_output.txt", "r") // open returns the file handle ID
+if (file > 0) { // if 0 the file does not exists
+    string line = read_line(file)
+    println(line)
+    close(file)
+}
+
+// Append to a file
+int file = open("test_file.txt", "a") // writing and appending automatically creates the file
+write(file, "Append Test")
+close(file)
+
+// Read a file line by line
+int file = open("test_line_read.txt", "r")
+if (file > 0) {
+    while (true) {
+        string line = read_line(file)
+        
+        if (line == none) { // EOF 
+            break
+        }
+        
+        println(line)
+    }
+    close(file) 
+}
+
 ```
 
 # Planned Features
@@ -265,12 +307,6 @@ Key-value data structures for more flexible data storage.
 ```
 user["name"] = "Nova"
 ```
-
----
-
-### File I/O
-
-Reading and writing files directly from NovaLang programs.
 
 ---
 

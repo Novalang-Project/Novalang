@@ -1,0 +1,66 @@
+// Test file for I/O module
+
+// Test 1: debug() function
+println("=== Test 1: debug ===")
+int num = 42
+float pi = format(3.14159, 5)
+string name = "Nova"
+bool flag = true
+
+debug("num", num)
+debug("pi", pi)
+debug("name", name)
+debug("flag", flag)
+
+// Test 2: File I/O - write_file
+println("\n=== Test 2: write_file ===")
+write_file("test_output.txt", "Hello from NovaLang!")
+println("File written")
+
+// Test 3: File I/O - read_file
+println("\n=== Test 3: read_file ===")
+string content = read_file("test_output.txt")
+println(content)
+
+// Test 4: File I/O with handles
+println("\n=== Test 4: open/read/close ===")
+int file = open("test_output.txt", "r")
+if (file > 0) {
+    string line = read_line(file)
+    println(line)
+    close(file)
+}
+
+// Test 5: write with handle
+println("\n=== Test 5: write with handle ===")
+int outFile = open("test2.txt", "w")
+write(outFile, "Line 1\n")
+write(outFile, "Line 2")
+close(outFile)
+
+// Test 6: full read
+println("\n=== Test 6: full read ===")
+string txt = read("test2.txt")
+println(txt)
+
+println("=== Tests done ===")
+
+# append
+int file = open("asddd.txt", "a") 
+write(file, "Append test")
+close(file)
+
+# read file line by line
+int file = open("test_line_read.txt", "r")
+if (file > 0) {
+    while (true) {
+        string line = read_line(file)
+        
+        if (line == none) {   # or "" depending on your implementation
+            break
+        }
+        
+        println(line)
+    }
+    close(file)
+}

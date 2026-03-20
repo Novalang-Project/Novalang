@@ -244,6 +244,7 @@ namespace nova
             Integer,
             Float,
             String,
+            FString,  // f"..." formatted string
             Boolean,
             None
         } kind;
