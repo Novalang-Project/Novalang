@@ -882,6 +882,13 @@ namespace nova {
             lit->loc.column = tok.column;
             return lit;
         }
+        if (match(TokenType::FString)) {
+            auto& tok = previous();
+            auto lit = std::make_unique<LiteralExpr>(LiteralExpr::LitKind::FString, tok.value);
+            lit->loc.line = tok.line;
+            lit->loc.column = tok.column;
+            return lit;
+        }
         if (match(TokenType::Boolean)) {
             auto& tok = previous();
             auto lit = std::make_unique<LiteralExpr>(LiteralExpr::LitKind::Boolean, tok.value);

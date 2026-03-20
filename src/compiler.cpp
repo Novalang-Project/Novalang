@@ -194,6 +194,61 @@ void Compiler::compileLiteral(LiteralExpr& expr) {
         case LiteralExpr::LitKind::String:
             emitString(OpCode::PUSH_STRING, expr.raw);
             break;
+        case LiteralExpr::LitKind::FString: {
+            // F-string: parse and compile at compile time
+            // Format: f"Hello {name}!" -> compile as fstring("Hello {}", name)
+            const std::string& fstr = expr.raw;
+            std::string formatStr;
+            std::vector<std::string> varNames;
+            
+            // Parse the f-string to extract format parts
+            for (size_t i = 0; i < fstr.length(); i++) {
+                if (fstr[i] == '{') {
+                    // Find closing brace
+                    size_t j = i + 1;
+                    while (j < fstr.length() && fstr[j] != '}') j++;
+                    
+                    if (j < fstr.length() && j > i + 1) {
+                        // Extract variable name
+                        std::string varName = fstr.substr(i + 1, j - i - 1);
+                        varNames.push_back(varName);
+                        formatStr += "{}";  // Replace {var} with placeholder
+                        i = j;  // Skip to after }
+                    } else {
+                        formatStr += fstr[i];
+                    }
+                } else {
+                    formatStr += fstr[i];
+                }
+            }
+            
+            // Emit ARG_COUNT for variadic call
+            emitInt(OpCode::ARG_COUNT, static_cast<int64_t>(varNames.size() + 1));
+            
+            // Push format string
+            emitString(OpCode::PUSH_STRING, formatStr);
+            
+            // For each variable, we need to look it up and push its value
+            // Use findVariableInAnyScope to find the variable
+            for (const auto& varName : varNames) {
+                auto [found, slot] = findVariableInAnyScope(varName);
+                
+                if (found) {
+                    // Local variable - use slot index
+                    emitInt(OpCode::LOAD_LOCAL, slot);
+                } else if (declaredGlobals.find(varName) != declaredGlobals.end()) {
+                    // Global variable - emit LOAD_GLOBAL with string name
+                    emitString(OpCode::LOAD_GLOBAL, varName);
+                } else {
+                    // Variable not found - push empty string as placeholder
+                    emitString(OpCode::PUSH_STRING, "");
+                }
+            }
+            
+            // Call fstring builtin (index 21)
+            emitInt(OpCode::BUILTIN, 21);
+            break;
+        }
         case LiteralExpr::LitKind::None:
             emit(OpCode::PUSH_NIL);
             break;
@@ -550,7 +605,18 @@ void Compiler::compileCall(CallExpr& expr) {
                 {"toFloat", 9},
                 {"toString", 10},
                 {"toBool", 11},
-                {"typeof", 12}
+                {"typeof", 12},
+                // File I/O builtins
+                {"open", 13},
+                {"close", 14},
+                {"read", 15},
+                {"read_line", 16},
+                {"write", 17},
+                {"read_file", 18},
+                {"write_file", 19},
+                // Debug and f-string
+                {"debug", 20},
+                {"fstring", 21}
             };
             
             emitInt(OpCode::BUILTIN, builtinMap[funcName]);
@@ -1458,6 +1524,8 @@ Compiler::DeclaredType Compiler::inferTypeFromExpression(Expression& expr) {
                 return DeclaredType::Float;
             case LiteralExpr::LitKind::String:
                 return DeclaredType::String;
+            case LiteralExpr::LitKind::FString:
+                return DeclaredType::String;  // F-strings evaluate to strings
             case LiteralExpr::LitKind::Boolean:
                 return DeclaredType::Bool;
             case LiteralExpr::LitKind::None:

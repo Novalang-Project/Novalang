@@ -4,6 +4,8 @@
 #include <cmath>
 #include <sstream>
 #include <iomanip>
+#include <fstream>
+#include <sstream>
 
 namespace nova {
 
@@ -481,6 +483,329 @@ void VirtualMachine::setupBuiltins() {
         if (arg.isList()) return VMValue("list");
         
         return VMValue("unknown");
+    };
+
+    // ============================================================================
+    // File I/O Built-ins
+    // ============================================================================
+
+    // open - Open a file for reading ("r"), writing ("w"), or appending ("a")
+    // Returns a file handle number, or -1 on error
+    builtins["open"] = [this](const std::vector<VMValue>& args) -> VMValue {
+        if (args.size() < 2) {
+            throw RuntimeError("open() expects 2 arguments: filename and mode", currentLine, 0);
+        }
+        const VMValue& filenameVal = args[0];
+        const VMValue& modeVal = args[1];
+        
+        if (!filenameVal.isString()) {
+            throw RuntimeError("open() first argument must be a string (filename)", currentLine, 0);
+        }
+        if (!modeVal.isString()) {
+            throw RuntimeError("open() second argument must be a string (mode)", currentLine, 0);
+        }
+        
+        const std::string& filename = filenameVal.asString();
+        const std::string& mode = modeVal.asString();
+        
+        if (mode == "r" || mode == "rb") {
+            // Open for reading
+            auto file = std::make_shared<std::ifstream>(filename, std::ios::in);
+            if (!file->is_open()) {
+                throw RuntimeError("Cannot open file for reading: " + filename, currentLine, 0);
+            }
+            int handle = nextFileHandle++;
+            inputFiles[handle] = file;
+            return VMValue(static_cast<int64_t>(handle));
+        } else if (mode == "w" || mode == "wb") {
+            // Open for writing (truncate)
+            auto file = std::make_shared<std::ofstream>(filename, std::ios::out | std::ios::trunc);
+            if (!file->is_open()) {
+                throw RuntimeError("Cannot open file for writing: " + filename, currentLine, 0);
+            }
+            int handle = nextFileHandle++;
+            outputFiles[handle] = file;
+            return VMValue(static_cast<int64_t>(handle));
+        } else if (mode == "a" || mode == "ab") {
+            // Open for appending
+            auto file = std::make_shared<std::ofstream>(filename, std::ios::out | std::ios::app);
+            if (!file->is_open()) {
+                throw RuntimeError("Cannot open file for appending: " + filename, currentLine, 0);
+            }
+            int handle = nextFileHandle++;
+            outputFiles[handle] = file;
+            return VMValue(static_cast<int64_t>(handle));
+        } else {
+            throw RuntimeError("Invalid file mode: " + mode + ". Use 'r', 'w', or 'a'", currentLine, 0);
+        }
+    };
+
+    // close - Close a file handle
+    builtins["close"] = [this](const std::vector<VMValue>& args) -> VMValue {
+        if (args.size() != 1) {
+            throw RuntimeError("close() expects 1 argument (file handle)", currentLine, 0);
+        }
+        const VMValue& handleVal = args[0];
+        
+        if (!handleVal.isInteger()) {
+            throw RuntimeError("close() argument must be an integer (file handle)", currentLine, 0);
+        }
+        
+        int handle = static_cast<int>(handleVal.asInteger());
+        
+        // Try to close as input file
+        auto inputIt = inputFiles.find(handle);
+        if (inputIt != inputFiles.end()) {
+            inputIt->second->close();
+            inputFiles.erase(inputIt);
+            return VMValue(true);
+        }
+        
+        // Try to close as output file
+        auto outputIt = outputFiles.find(handle);
+        if (outputIt != outputFiles.end()) {
+            outputIt->second->close();
+            outputFiles.erase(outputIt);
+            return VMValue(true);
+        }
+        
+        // File handle not found
+        return VMValue(false);
+    };
+
+    // read - Read entire file content (for file handles)
+    builtins["read"] = [this](const std::vector<VMValue>& args) -> VMValue {
+        if (args.size() != 1) {
+            throw RuntimeError("read() expects 1 argument (file handle)", currentLine, 0);
+        }
+        const VMValue& handleVal = args[0];
+        
+        if (!handleVal.isInteger()) {
+            // Maybe it's a filename string - try read_file instead
+            if (handleVal.isString()) {
+                const std::string& filename = handleVal.asString();
+                std::ifstream file(filename);
+                if (!file.is_open()) {
+                    throw RuntimeError("Cannot open file for reading: " + filename, currentLine, 0);
+                }
+                std::stringstream buffer;
+                buffer << file.rdbuf();
+                return VMValue(buffer.str());
+            }
+            throw RuntimeError("read() argument must be an integer (file handle) or string (filename)", currentLine, 0);
+        }
+        
+        int handle = static_cast<int>(handleVal.asInteger());
+        auto it = inputFiles.find(handle);
+        if (it == inputFiles.end()) {
+            throw RuntimeError("Invalid file handle: " + std::to_string(handle), currentLine, 0);
+        }
+        
+        std::stringstream buffer;
+        buffer << it->second->rdbuf();
+        return VMValue(buffer.str());
+    };
+
+    // read_line - Read a single line from file
+    builtins["read_line"] = [this](const std::vector<VMValue>& args) -> VMValue {
+        if (args.size() != 1) {
+            throw RuntimeError("readLine() expects 1 argument (file handle)", currentLine, 0);
+        }
+        const VMValue& handleVal = args[0];
+        
+        if (!handleVal.isInteger()) {
+            throw RuntimeError("readLine() argument must be an integer (file handle)", currentLine, 0);
+        }
+        
+        int handle = static_cast<int>(handleVal.asInteger());
+        auto it = inputFiles.find(handle);
+        if (it == inputFiles.end()) {
+            throw RuntimeError("Invalid file handle: " + std::to_string(handle), currentLine, 0);
+        }
+        
+        std::string line;
+        if (std::getline(*(it->second), line)) {
+            return VMValue(line);
+        }
+        // End of file
+        return VMValue(nullptr);
+    };
+
+    // write - Write string to file
+    builtins["write"] = [this](const std::vector<VMValue>& args) -> VMValue {
+        if (args.size() != 2) {
+            throw RuntimeError("write() expects 2 arguments: file handle and string", currentLine, 0);
+        }
+        const VMValue& handleVal = args[0];
+        const VMValue& contentVal = args[1];
+        
+        if (!handleVal.isInteger()) {
+            throw RuntimeError("write() first argument must be an integer (file handle)", currentLine, 0);
+        }
+        if (!contentVal.isString()) {
+            throw RuntimeError("write() second argument must be a string", currentLine, 0);
+        }
+        
+        int handle = static_cast<int>(handleVal.asInteger());
+        auto it = outputFiles.find(handle);
+        if (it == outputFiles.end()) {
+            throw RuntimeError("Invalid file handle or file not open for writing: " + std::to_string(handle), currentLine, 0);
+        }
+        
+        *(it->second) << contentVal.asString();
+        it->second->flush();
+        
+        return VMValue(true);
+    };
+
+    // read_file - Convenience function to read entire file into string
+    builtins["read_file"] = [this](const std::vector<VMValue>& args) -> VMValue {
+        if (args.size() != 1) {
+            throw RuntimeError("read_file() expects 1 argument (filename)", currentLine, 0);
+        }
+        const VMValue& filenameVal = args[0];
+        
+        if (!filenameVal.isString()) {
+            throw RuntimeError("read_file() argument must be a string (filename)", currentLine, 0);
+        }
+        
+        const std::string& filename = filenameVal.asString();
+        std::ifstream file(filename);
+        if (!file.is_open()) {
+            throw RuntimeError("Cannot open file for reading: " + filename, currentLine, 0);
+        }
+        
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+        return VMValue(buffer.str());
+    };
+
+    // write_file - Convenience function to write string to file
+    builtins["write_file"] = [this](const std::vector<VMValue>& args) -> VMValue {
+        if (args.size() != 2) {
+            throw RuntimeError("write_file() expects 2 arguments: filename and content", currentLine, 0);
+        }
+        const VMValue& filenameVal = args[0];
+        const VMValue& contentVal = args[1];
+        
+        if (!filenameVal.isString()) {
+            throw RuntimeError("write_file() first argument must be a string (filename)", currentLine, 0);
+        }
+        if (!contentVal.isString()) {
+            throw RuntimeError("write_file() second argument must be a string", currentLine, 0);
+        }
+        
+        const std::string& filename = filenameVal.asString();
+        const std::string& content = contentVal.asString();
+        
+        std::ofstream file(filename, std::ios::out | std::ios::trunc);
+        if (!file.is_open()) {
+            throw RuntimeError("Cannot open file for writing: " + filename, currentLine, 0);
+        }
+        
+        file << content;
+        file.close();
+        
+        return VMValue(true);
+    };
+
+    // ============================================================================
+    // Debug Built-in
+    // ============================================================================
+
+    // debug - Print variable name, value, and type (for debugging)
+    builtins["debug"] = [this](const std::vector<VMValue>& args) -> VMValue {
+        if (args.empty()) {
+            std::cout << "debug(): no arguments\n";
+            return VMValue(nullptr);
+        }
+        
+        // If first argument is a string, treat it as variable name
+        if (args.size() >= 1 && args[0].isString()) {
+            const std::string& varName = args[0].asString();
+            const VMValue& value = args.size() > 1 ? args[1] : VMValue(nullptr);
+            
+            std::string typeName;
+            if (value.isNone()) typeName = "none";
+            else if (value.isBool()) typeName = "bool";
+            else if (value.isInteger()) typeName = "int";
+            else if (value.isFloat()) typeName = "float";
+            else if (value.isString()) typeName = "string";
+            else if (value.isList()) typeName = "list";
+            else if (value.isStruct()) typeName = "struct";
+            else typeName = "unknown";
+            
+            std::cout << varName << " = " << value.toString() << " (type: " << typeName << ")\n";
+        } else {
+            // No name provided, just print value and type
+            for (size_t i = 0; i < args.size(); i++) {
+                const VMValue& value = args[i];
+                std::string typeName;
+                if (value.isNone()) typeName = "none";
+                else if (value.isBool()) typeName = "bool";
+                else if (value.isInteger()) typeName = "int";
+                else if (value.isFloat()) typeName = "float";
+                else if (value.isString()) typeName = "string";
+                else if (value.isList()) typeName = "list";
+                else if (value.isStruct()) typeName = "struct";
+                else typeName = "unknown";
+                
+                std::cout << "[value] " << value.toString() << " (type: " << typeName << ")\n";
+            }
+        }
+        
+        return VMValue(nullptr);
+    };
+
+    // ============================================================================
+    // F-String Built-in (Runtime parsing)
+    // ============================================================================
+
+    // fstring - Parse f-string format at runtime
+    // First argument is the format string, remaining arguments are values to interpolate
+    builtins["fstring"] = [](const std::vector<VMValue>& args) -> VMValue {
+        if (args.empty()) {
+            return VMValue("");
+        }
+        
+        if (!args[0].isString()) {
+            throw RuntimeError("fstring() first argument must be a string (format)", 0, 0);
+        }
+        
+        const std::string& format = args[0].asString();
+        std::string result;
+        size_t argIndex = 1;  
+        
+        for (size_t i = 0; i < format.length(); i++) {
+            if (format[i] == '{') {
+                size_t j = i + 1;
+                while (j < format.length() && format[j] != '}') {
+                    j++;
+                }
+                
+                if (j >= format.length()) {
+                    result += format[i];
+                    continue;
+                }
+                
+                std::string expr = format.substr(i + 1, j - i - 1);
+                
+                if (argIndex < args.size()) {
+                    result += args[argIndex].toString();
+                    argIndex++;
+                } else {
+                    result += "{" + expr + "}";
+                }
+                
+                i = j;  
+            } else if (format[i] == '}') {
+                result += "}";
+            } else {
+                result += format[i];
+            }
+        }
+        
+        return VMValue(result);
     };
 }
 
@@ -1045,13 +1370,21 @@ void VirtualMachine::executeInstruction(CallFrame& frame, const Instruction& ins
             else if (builtinIdx == 10) expectedArgs = 1; // toString
             else if (builtinIdx == 11) expectedArgs = 1; // toBool
             else if (builtinIdx == 12) expectedArgs = 1; // typeof
+            else if (builtinIdx == 13) expectedArgs = 2; // open
+            else if (builtinIdx == 14) expectedArgs = 1; // close
+            else if (builtinIdx == 15) expectedArgs = 1; // read
+            else if (builtinIdx == 16) expectedArgs = 1; // read_line
+            else if (builtinIdx == 17) expectedArgs = 2; // write
+            else if (builtinIdx == 18) expectedArgs = 1; // read_file
+            else if (builtinIdx == 19) expectedArgs = 2; // write_file
+            else if (builtinIdx == 20) expectedArgs = -1; // debug (variadic)
+            else if (builtinIdx == 21) expectedArgs = -1; // fstring (variadic)
             
             // Collect arguments from the stack
             std::vector<VMValue> args;
             
-            // Use pendingArgCount for variadic functions (println, input)
-            if (builtinIdx == 3 || builtinIdx == 5) {
-                // Collect exactly pendingArgCount arguments
+            // Use pendingArgCount for variadic functions (println, input, debug, fstring)
+            if (builtinIdx == 3 || builtinIdx == 5 || builtinIdx == 20 || builtinIdx == 21) {
                 for (int i = 0; i < pendingArgCount && !stack.empty(); i++) {
                     args.insert(args.begin(), stack.back());
                     stack.pop_back();
@@ -1084,6 +1417,15 @@ void VirtualMachine::executeInstruction(CallFrame& frame, const Instruction& ins
             else if (builtinIdx == 10) funcName = "toString";
             else if (builtinIdx == 11) funcName = "toBool";
             else if (builtinIdx == 12) funcName = "typeof";
+            else if (builtinIdx == 13) funcName = "open";
+            else if (builtinIdx == 14) funcName = "close";
+            else if (builtinIdx == 15) funcName = "read";
+            else if (builtinIdx == 16) funcName = "read_line";
+            else if (builtinIdx == 17) funcName = "write";
+            else if (builtinIdx == 18) funcName = "read_file";
+            else if (builtinIdx == 19) funcName = "write_file";
+            else if (builtinIdx == 20) funcName = "debug";
+            else if (builtinIdx == 21) funcName = "fstring";
             
             auto it = builtins.find(funcName);
             if (it != builtins.end()) {

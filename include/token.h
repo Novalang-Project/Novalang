@@ -7,6 +7,7 @@ namespace nova {
         Keyword,
         Number,
         String,
+        FString,  // f"..." formatted string
         Boolean,
         Plus,
         Minus,

@@ -75,6 +75,45 @@ namespace nova {
             return {TokenType::Comment, comment, startLine, startCol};
         }
 
+        // F-strings f'...' or f"..." (formatted strings with {expressions})
+        // MUST check before identifiers since 'f' is alphabetic
+        if ((c == 'f' || c == 'F') && (peek(1) == '"' || peek(1) == '\'')) {
+            get(); // consume 'f'
+            char quote = get();
+            string value;
+            while (true) {
+                char ch = peek();
+                if (ch == '\0') {
+                    throw UnterminatedStringError(startLine, startCol, value);
+                }
+
+                if (ch == quote) {
+                    get();
+                    break;
+                }
+
+                if (ch == '\\') {
+                    get();
+                    char next = get();
+                    switch (next) {
+                        case 'n': value += '\n'; break;
+                        case 't': value += '\t'; break;
+                        case 'r': value += '\r'; break;
+                        case '\\': value += '\\'; break;
+                        case '"': value += '"'; break;
+                        case '\'': value += '\''; break;
+                        case '0': value += '\0'; break;
+                        default:
+                            throw InvalidEscapeSequenceError(line, col, next);
+                    }
+                } else {
+                    value += get();
+                }
+            }
+
+            return {TokenType::FString, value, startLine, startCol};
+        }
+
         // Identifiers and keywords (allow '?' suffix for option types)
         if (isalpha(static_cast<unsigned char>(c)) || c == '_') {
             string value;

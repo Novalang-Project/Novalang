@@ -8,6 +8,7 @@
 #include <optional>
 #include <memory>
 #include <functional>
+#include <fstream>
 
 namespace nova {
 
@@ -317,6 +318,17 @@ private:
     // Built-in functions
     std::unordered_map<std::string, std::function<VMValue(std::vector<VMValue>)>> builtins;
 
+    // File I/O: map from file handle (int) to input file stream
+    std::unordered_map<int, std::shared_ptr<std::ifstream>> inputFiles;
+    std::unordered_map<int, std::shared_ptr<std::ofstream>> outputFiles;
+    int nextFileHandle = 1;  // Start from 1 (0 will be invalid)
+    
+    // Helper to open a file and return handle
+    int openInputFile(const std::string& filename);
+    int openOutputFile(const std::string& filename, bool append);
+    bool closeInputFile(int handle);
+    bool closeOutputFile(int handle);
+    
     void setupBuiltins();
     VMValue run();
     void executeInstruction(CallFrame& frame, const Instruction& instr);
