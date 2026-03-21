@@ -165,6 +165,8 @@ void Compiler::compileExpression(Expression& expr) {
         compileStruct(*s);
     } else if (auto* methodCall = dynamic_cast<MethodCallExpr*>(&expr)) {
         compileMethodCall(*methodCall);
+    } else if (auto* awaitExpr = dynamic_cast<AwaitExpr*>(&expr)) {
+        compileAwait(*awaitExpr);
     } else {
         // Tuple and other expressions which are not implemented yet - emit nil
         emit(OpCode::PUSH_NIL);
@@ -746,6 +748,17 @@ void Compiler::compileMember(MemberExpr& expr) {
     emitString(OpCode::FIELD_GET, expr.field);
 }
 
+// Compile an await expression: await <expression>
+// Validates that we're inside an async function, then emits AWAIT opcode.
+void Compiler::compileAwait(AwaitExpr& expr) {
+    if (!currentFunctionIsAsync) {
+        throw std::runtime_error("'await' can only be used inside an async function");
+    }
+        compileExpression(*expr.expr);
+    
+    emit(OpCode::AWAIT);
+}
+
 // Compile a struct literal expression: StructType { field1: val1, ... }.
 // Emits STRUCT_NEW to create the struct, then sets each field by compiling
 // its value and using FIELD_SET.
@@ -852,13 +865,19 @@ void Compiler::compileVarDecl(VarDecl& decl) {
 // Sets up a new function context, adds parameters as locals,
 // compiles the function body, and emits an implicit return if needed.
 void Compiler::compileFuncDecl(FuncDecl& decl) {
-    // Track function name for collision detection (current file only)
     if (functionDepth == 0) {
         currentFileFunctions.insert(decl.name);
     }
     
+    // Save previous async state
+    bool wasAsync = currentFunctionIsAsync;
+    
     BytecodeFunction* newFunc = enterFunction(decl.name);
     newFunc->numParams = decl.params.size();
+    newFunc->isAsync = decl.isAsync;
+    
+    // Set async flag for this function
+    currentFunctionIsAsync = decl.isAsync;
     
     for (auto& param : decl.params) {
         DeclaredType paramType = resolveDeclaredType(param.type);
@@ -874,6 +893,8 @@ void Compiler::compileFuncDecl(FuncDecl& decl) {
         emit(OpCode::PUSH_NIL);
         emit(OpCode::RETURN_VALUE);
     }
+    
+    currentFunctionIsAsync = wasAsync;
     
     exitFunction();
     

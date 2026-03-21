@@ -110,6 +110,9 @@ private:
     // Track if current function has explicit return
     bool currentFunctionHasReturn = false;
 
+    // Track if we're inside an async function (for await validation)
+    bool currentFunctionIsAsync = false;
+
     // Strict mode for stricter type checking (disabled by default, restricts any usage and function argument type checks)
     bool strictMode = false;
 
@@ -126,6 +129,7 @@ private:
     void compileList(ListExpr& expr);
     void compileMember(MemberExpr& expr);
     void compileStruct(StructExpr& expr);
+    void compileAwait(AwaitExpr& expr);
 
     // Helper methods for compiling statements
     void compileStatement(Statement& stmt);

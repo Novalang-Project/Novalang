@@ -123,6 +123,10 @@ enum class OpCode : uint8_t {
     // Type checking
     TYPEOF,         // Get type of value
     
+    // Async/Await support
+    AWAIT,          // Await a Future (operand: local slot to store result)
+    ASYNC_CALL,     // Call an async function (operand: arg count)
+    
     // End of program
     HALT,           // Halt execution
 };
@@ -154,6 +158,7 @@ struct BytecodeFunction {
     std::vector<std::string> upvalues;    // Upvalue names
     std::optional<std::string> returnType; // Return type (none if void)
     int numParams = 0;                     // Number of parameters
+    bool isAsync = false;                  // True if this is an async function
     
     size_t arity() const { return locals.size(); }
 };
@@ -200,6 +205,12 @@ struct Chunk {
 
 namespace nova {
 
+// ============================================================================
+// Future Type - For async/await support (forward declaration)
+// ============================================================================
+
+struct Future;
+
 struct VMValue {
     using StructData = std::unordered_map<std::string, VMValue>;
     
@@ -210,6 +221,7 @@ struct VMValue {
         bool,                         // Boolean
         std::vector<VMValue>,         // List
         std::shared_ptr<StructData>,  // Struct
+        std::shared_ptr<Future>,      // Future (for async/await)
         std::nullptr_t                // None/NULL
     > data;
 
@@ -223,6 +235,7 @@ struct VMValue {
     explicit VMValue(const std::vector<VMValue>& v) : data(v) {}
     explicit VMValue(std::vector<VMValue>&& v) : data(std::move(v)) {}
     explicit VMValue(std::shared_ptr<StructData> s) : data(std::move(s)) {}
+    explicit VMValue(std::shared_ptr<Future> f) : data(std::move(f)) {}
 
     // Type checks
     bool isInteger() const { return std::holds_alternative<int64_t>(data); }
@@ -231,6 +244,7 @@ struct VMValue {
     bool isBool() const { return std::holds_alternative<bool>(data); }
     bool isList() const { return std::holds_alternative<std::vector<VMValue>>(data); }
     bool isStruct() const { return std::holds_alternative<std::shared_ptr<StructData>>(data); }
+    bool isFuture() const { return std::holds_alternative<std::shared_ptr<Future>>(data); }
     bool isNone() const { return std::holds_alternative<std::nullptr_t>(data); }
 
     enum class VMType {
@@ -240,6 +254,7 @@ struct VMValue {
         Bool,
         List,
         Struct,
+        Future,
         None
     };
 
@@ -250,6 +265,7 @@ struct VMValue {
         if (isBool()) return VMType::Bool;
         if (isList()) return VMType::List;
         if (isStruct()) return VMType::Struct;
+        if (isFuture()) return VMType::Future;
         return VMType::None;
     }
 
@@ -271,6 +287,8 @@ struct VMValue {
     const std::vector<VMValue>& asList() const { return std::get<std::vector<VMValue>>(data); }
     StructData& asStruct() { return *std::get<std::shared_ptr<StructData>>(data); }
     const StructData& asStruct() const { return *std::get<std::shared_ptr<StructData>>(data); }
+    std::shared_ptr<Future> asFuture() { return std::get<std::shared_ptr<Future>>(data); }
+    const std::shared_ptr<Future> asFuture() const { return std::get<std::shared_ptr<Future>>(data); }
 
     // Get field from struct
     VMValue getField(const std::string& field) const;
@@ -281,6 +299,26 @@ struct VMValue {
 
     // Equality comparison
     bool equals(const VMValue& other) const;
+};
+
+// ============================================================================
+// Future Type - For async/await support
+// ============================================================================
+
+struct Future {
+    enum class State {
+        Pending,
+        Resolved,
+        Failed
+    } state = State::Pending;
+    VMValue result;  // The resolved value
+    std::string error;  // Error message if failed
+    
+    std::function<void()> continuation;  
+    bool isReady() const { return state != State::Pending; }
+    
+    Future() = default;
+    explicit Future(VMValue v) : state(State::Resolved), result(std::move(v)) {}
 };
 
 // Forward declaration
@@ -332,6 +370,11 @@ private:
     void setupBuiltins();
     VMValue run();
     void executeInstruction(CallFrame& frame, const Instruction& instr);
+    
+    // Async/await support - event loop and coroutine management
+    std::vector<std::shared_ptr<Future>> pendingFutures;  // Pending async tasks
+    void runEventLoopUntilComplete(std::shared_ptr<Future> target);
+    void scheduleCoroutine(const BytecodeFunction& fn, std::shared_ptr<Future> fut);
     VMValue binaryOp(const VMValue& a, const VMValue& b, const std::string& op);
     bool compareOp(const VMValue& a, const VMValue& b, const std::string& op);
     const BytecodeFunction* findFunction(const VMValue& funcVal);

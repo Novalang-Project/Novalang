@@ -1,0 +1,22 @@
+# Proper async test - multiple tasks
+
+async func main() {
+    println("Starting main...")
+    
+    # Call async functions and await them directly
+    string result1 = await asyncTask1()
+    string result2 = await asyncTask2()
+    
+    println("Got result1:", result1)
+    println("Got result2:", result2)
+}
+
+async func asyncTask1() -> string {
+    println("Task 1 starting...")
+    return "Task 1 Done"
+}
+
+async func asyncTask2() -> string {
+    println("Task 2 starting...")
+    return "Task 2 Done"
+}

@@ -827,16 +827,29 @@ VMValue VirtualMachine::execute(BytecodeProgram& prog) {
     }
 
     const BytecodeFunction* mainFn = nullptr;
+    bool mainIsAsync = false;
     for (const auto& fn : prog.functions) {
         if (fn.name == "_start") {
             mainFn = &fn;
+            mainIsAsync = fn.isAsync;
             break;
         }
     }
     
-    // If no _start function, fallback to first function
+    // If no _start function, fallback to first function (check for 'main' or any function)
+    if (!mainFn) {
+        for (const auto& fn : prog.functions) {
+            if (fn.name == "main") {
+                mainFn = &fn;
+                mainIsAsync = fn.isAsync;
+                break;
+            }
+        }
+    }
+    
     if (!mainFn) {
         mainFn = &prog.functions[0];
+        mainIsAsync = mainFn->isAsync;
     }
 
     callFunction(*mainFn, {});
@@ -1339,11 +1352,12 @@ void VirtualMachine::executeInstruction(CallFrame& frame, const Instruction& ins
         case OpCode::RETURN:
             frames.pop_back();
             break;
-        case OpCode::RETURN_VALUE:
+        case OpCode::RETURN_VALUE: {
             if (!stack.empty()) {
                 lastValue = stack.back();
                 stack.pop_back();
             }
+            
             frames.pop_back();
             if (frames.empty()) {
                 halted = true;
@@ -1351,6 +1365,30 @@ void VirtualMachine::executeInstruction(CallFrame& frame, const Instruction& ins
                 stack.push_back(lastValue);
             }
             break;
+        }
+        
+        // Await - runs event loop until Future resolves
+        case OpCode::AWAIT: {
+            frame.ip++;
+            if (!stack.empty()) {
+                VMValue val = stack.back();
+                stack.pop_back();
+                
+                if (val.isFuture()) {
+                    auto fut = val.asFuture();
+                    if (fut->isReady()) {
+                        stack.push_back(fut->result);
+                    } else {
+                        // Run event loop until Future resolves
+                        runEventLoopUntilComplete(fut);
+                        stack.push_back(fut->result);
+                    }
+                } else {
+                    stack.push_back(val);
+                }
+            }
+            break;
+        }
         
         // Built-in functions
         case OpCode::BUILTIN: {
@@ -1717,13 +1755,69 @@ const BytecodeFunction* VirtualMachine::findFunction(const VMValue& funcVal) {
 }
 
 void VirtualMachine::callFunction(const BytecodeFunction& fn, const std::vector<VMValue>& args) {
-    // Stack base is current size (arguments were already popped by CALL handler)
+    // If this is an async function, create a Future and schedule it
+    if (fn.isAsync) {
+        auto fut = std::make_shared<Future>();
+        // Schedule the coroutine to run
+        scheduleCoroutine(fn, fut);
+        // Push the future onto the stack
+        stack.push_back(VMValue(fut));
+        return;
+    }
+    
+    // Regular synchronous call
     size_t stackBase = stack.size();
     frames.emplace_back(&fn, stackBase);
     
     CallFrame& frame = frames.back();
     for (size_t i = 0; i < args.size() && i < frame.locals.size(); i++) {
         frame.locals[i] = args[i];
+    }
+}
+
+// Schedule an async function to run as a coroutine
+void VirtualMachine::scheduleCoroutine(const BytecodeFunction& fn, std::shared_ptr<Future> fut) {
+    size_t stackBase = stack.size();
+    frames.emplace_back(&fn, stackBase);
+    
+    CallFrame& frame = frames.back();
+    
+    // Add to pending futures
+    pendingFutures.push_back(fut);
+}
+
+// Run the event loop until a specific Future is complete
+void VirtualMachine::runEventLoopUntilComplete(std::shared_ptr<Future> target) {
+    while (!target->isReady() && !halted) {
+        bool didWork = false;
+        
+        // Process pending futures
+        for (auto it = pendingFutures.begin(); it != pendingFutures.end(); ) {
+            auto& fut = *it;
+            
+            if (fut->isReady()) {
+                it = pendingFutures.erase(it);
+                continue;
+            }
+            
+            if (!frames.empty()) {
+                CallFrame& frame = frames.back();
+                
+                if (frame.ip < frame.function->instructions.size()) {
+                    const Instruction& instr = frame.function->instructions[frame.ip];
+                    executeInstruction(frame, instr);
+                    didWork = true;
+                } else {
+                    frames.pop_back();
+                }
+            }
+            
+            ++it;
+        }
+        
+        if (!didWork && !target->isReady()) {
+            break;
+        }
     }
 }
 

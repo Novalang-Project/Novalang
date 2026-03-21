@@ -14,7 +14,7 @@
 using namespace nova;
 
 // NovaLang version
-static const char* VERSION = "0.2.0";
+static const char* VERSION = "0.2.1";
 
 // Helper to read file
 static std::string slurpFile(const std::string& path) {

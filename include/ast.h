@@ -116,6 +116,7 @@ namespace nova
         std::vector<Param> params;
         TypePtr returnType = nullptr; // may be nullptr (void)
         BlockStmt body;
+        bool isAsync = false; // true if this is an async function
     };
 
     struct StructDecl : Declaration
@@ -308,6 +309,13 @@ namespace nova
         ExprPtr object;  // the object (e.g., a in a.push(5))
         std::string method; // the method name (e.g., push)
         std::vector<ExprPtr> args; // the arguments
+    };
+
+    // Await expression: await <expression>
+    // Can only be used inside async functions
+    struct AwaitExpr : Expression
+    {
+        ExprPtr expr; 
     };
 
     // Struct instantiation expression: Person(name="text", age=51)

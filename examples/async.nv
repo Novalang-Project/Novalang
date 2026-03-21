@@ -1,0 +1,16 @@
+# Test async/await functionality
+async func main() {
+    println("Hello from async main!")
+    await doStuff()
+    println(doStuff2())
+}
+
+async func doStuff() -> string {
+    println("hello test")
+    return "test hello"
+}
+
+# Test normal (non-async) function - backward compatibility
+func doStuff2() -> string {
+    return "test hello normal"
+}
