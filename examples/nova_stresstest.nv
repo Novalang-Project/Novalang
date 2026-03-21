@@ -44,7 +44,6 @@ func loopStress() -> int
 // nested function calls
 func nestedCalls(int x) -> int
 {
-
     return math.square(math.abs(x)) + math.cube(math.sign(x))
 }
 

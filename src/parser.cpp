@@ -155,9 +155,11 @@ namespace nova {
     // Handles function name, parameters (typed or untyped), optional return type,
     // and body block. Supports multiple parameter type syntaxes.
     // Returns nullptr if the structure does not match a valid function declaration.
-    DeclPtr Parser::parseFuncDecl() 
+    // isAsync indicates if this is an async function.
+    DeclPtr Parser::parseFuncDecl(bool isAsync) 
     { 
-        auto func = std::make_unique<FuncDecl>(); 
+        auto func = std::make_unique<FuncDecl>();
+        func->isAsync = isAsync; 
         if (!match(TokenType::Identifier)) return nullptr; 
         func->loc.line = previous().line;
         func->loc.column = previous().column;
@@ -362,9 +364,21 @@ namespace nova {
     DeclPtr Parser::parseDeclaration() {
         if (check(TokenType::Keyword)) {
             std::string kw = peek().value;
+            
+            if (kw == "async") {
+                advance(); 
+                if (check(TokenType::Keyword) && peek().value == "func") {
+                    advance(); 
+                    return parseFuncDecl(true); // isAsync = true
+                } else {
+                    error("Expected 'func' after 'async'");
+                    return nullptr;
+                }
+            }
+            
             if (kw == "func") {
                 advance();
-                return parseFuncDecl();
+                return parseFuncDecl(); // default isAsync = false
             }
             if (kw == "const") {
                 advance(); 
@@ -822,6 +836,21 @@ namespace nova {
     }
 
     ExprPtr Parser::parseUnary() {
+        // Handle await expression
+        if (check(TokenType::Keyword) && peek().value == "await") {
+            auto awaitExpr = std::make_unique<AwaitExpr>();
+            awaitExpr->loc.line = peek().line;
+            awaitExpr->loc.column = peek().column;
+            advance(); 
+            
+            awaitExpr->expr = parseUnary();
+            if (!awaitExpr->expr) {
+                error("Expected expression after 'await'");
+                return nullptr;
+            }
+            return awaitExpr;
+        }
+        
         if (match(TokenType::PlusPlus) || match(TokenType::MinusMinus) || match(TokenType::Minus) || match(TokenType::Bang)) {
             SourceLocation opLoc;
             opLoc.line = previous().line;

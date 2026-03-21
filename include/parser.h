@@ -32,7 +32,7 @@ public:
     ASTNodePtr parseProgram();
 
     DeclPtr parseVarDecl(bool isConst);
-    DeclPtr parseFuncDecl();
+    DeclPtr parseFuncDecl(bool isAsync = false);
     DeclPtr parseStructDecl();
     DeclPtr parseImportDecl();
     DeclPtr parseDeclaration();
