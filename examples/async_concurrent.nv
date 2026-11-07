@@ -1,0 +1,17 @@
+# Concurrency test: tasks must interleave instead of blocking each other
+async func worker(string name, int delay) -> string {
+    println(name, "started")
+    await sleep(delay)
+    println(name, "finished after", delay, "ms")
+    return name
+}
+
+async func main() {
+    println("main: spawning")
+    auto a = worker("A", 300)
+    auto b = worker("B", 100)
+    println("main: spawned, awaiting")
+    string ra = await a
+    string rb = await b
+    println("results:", ra, rb)
+}

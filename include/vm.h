@@ -9,6 +9,8 @@
 #include <memory>
 #include <functional>
 #include <fstream>
+#include <deque>
+#include <chrono>
 
 namespace nova {
 
@@ -315,6 +317,9 @@ struct Future {
     std::string error;  // Error message if failed
     
     std::function<void()> continuation;  
+    // Timer futures (created by sleep): resolved by the event loop once wakeAt has passed
+    bool isTimer = false;
+    std::chrono::steady_clock::time_point wakeAt;
     bool isReady() const { return state != State::Pending; }
     
     Future() = default;
@@ -334,6 +339,15 @@ struct CallFrame {
     CallFrame(const BytecodeFunction* fn, size_t stackBase);
 };
 
+// Task - an independently scheduled async call (own value stack + call frames).
+// Suspended at 'await' while the awaited Future is pending, resumed by the event loop.
+struct Task {
+    std::vector<VMValue> stack;
+    std::vector<CallFrame> frames;
+    std::shared_ptr<Future> future;     // Resolved with the task's return value
+    std::shared_ptr<Future> waitingOn;  // Future this task is suspended on (if any)
+};
+
 // Virtual Machine
 class VirtualMachine {
 public:
@@ -350,8 +364,8 @@ private:
     std::vector<VMValue> constants;       // Constant pool values
     bool halted = false;
     VMValue lastValue;
-    int currentLine = 0;  // Current line being executed (for error reporting)
-    int pendingArgCount = 0;  // Argument count for next builtin call
+    int currentLine = 0;  
+    int pendingArgCount = 0; 
 
     // Built-in functions
     std::unordered_map<std::string, std::function<VMValue(std::vector<VMValue>)>> builtins;
@@ -372,9 +386,13 @@ private:
     void executeInstruction(CallFrame& frame, const Instruction& instr);
     
     // Async/await support - event loop and coroutine management
-    std::vector<std::shared_ptr<Future>> pendingFutures;  // Pending async tasks
-    void runEventLoopUntilComplete(std::shared_ptr<Future> target);
-    void scheduleCoroutine(const BytecodeFunction& fn, std::shared_ptr<Future> fut);
+    std::deque<std::shared_ptr<Task>> readyTasks;          // Runnable tasks
+    std::vector<std::shared_ptr<Task>> waitingTasks;       // Tasks suspended on a pending Future
+    std::vector<std::shared_ptr<Future>> timers;           // Pending sleep() futures
+    std::shared_ptr<Task> currentTask;                     // Task whose state is loaded in stack/frames
+    bool suspendRequested = false;                         // Set by AWAIT to yield to the event loop
+    void runEventLoop();
+    void scheduleCoroutine(const BytecodeFunction& fn, const std::vector<VMValue>& args, std::shared_ptr<Future> fut);
     VMValue binaryOp(const VMValue& a, const VMValue& b, const std::string& op);
     bool compareOp(const VMValue& a, const VMValue& b, const std::string& op);
     const BytecodeFunction* findFunction(const VMValue& funcVal);
