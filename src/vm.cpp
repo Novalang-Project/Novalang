@@ -1,4 +1,7 @@
 #include "vm.h"
+#include <thread>
+#include <algorithm>
+#include <stdexcept>
 #include "errors/runtime.h"
 #include <iostream>
 #include <cmath>
@@ -131,6 +134,17 @@ VirtualMachine::VirtualMachine() {
 }
 
 void VirtualMachine::setupBuiltins() {
+    // sleep(ms) - returns a Future that resolves after ms milliseconds (use with await)
+    builtins["sleep"] = [this](const std::vector<VMValue>& args) -> VMValue {
+        double ms = 0;
+        if (!args.empty()) ms = args[0].isInteger() ? static_cast<double>(args[0].asInteger()) : args[0].asFloat();
+        auto fut = std::make_shared<Future>();
+        fut->isTimer = true;
+        fut->wakeAt = std::chrono::steady_clock::now() + std::chrono::microseconds(static_cast<int64_t>(ms * 1000));
+        timers.push_back(fut);
+        return VMValue(fut);
+    };
+
     // len - get length of list or string
     builtins["len"] = [this](const std::vector<VMValue>& args) -> VMValue {
         if (args.empty()) return VMValue(nullptr);
@@ -852,10 +866,21 @@ VMValue VirtualMachine::execute(BytecodeProgram& prog) {
         mainIsAsync = mainFn->isAsync;
     }
 
-    callFunction(*mainFn, {});
-    
-    // Run the VM
-    return run();
+    // The entry function runs as the root task; the event loop drives it
+    // (and any async tasks it spawns) to completion.
+    readyTasks.clear();
+    waitingTasks.clear();
+    timers.clear();
+    currentTask = nullptr;
+    suspendRequested = false;
+
+    auto root = std::make_shared<Task>();
+    root->future = std::make_shared<Future>();
+    root->frames.emplace_back(mainFn, 0);
+    readyTasks.push_back(root);
+
+    runEventLoop();
+    return root->future->isReady() ? root->future->result : lastValue;
 }
 
 // Run the virtual machine.
@@ -863,22 +888,7 @@ VMValue VirtualMachine::execute(BytecodeProgram& prog) {
 // Handles implicit returns and propagates return values on the stack.
 // Returns the last computed value.
 VMValue VirtualMachine::run() {
-    while (!halted && !frames.empty()) {
-        CallFrame& frame = frames.back();
-        
-        if (frame.ip >= frame.function->instructions.size()) {
-            frames.pop_back();
-            if (!frames.empty()) {
-                frames.back().ip++;
-                stack.push_back(VMValue(nullptr));
-            }
-            continue;
-        }
-        
-        const Instruction& instr = frame.function->instructions[frame.ip];
-        executeInstruction(frame, instr);
-    }
-    
+    runEventLoop();
     return lastValue;
 }
 
@@ -1313,6 +1323,7 @@ void VirtualMachine::executeInstruction(CallFrame& frame, const Instruction& ins
                     }
                     stack.pop_back();
 
+                    const size_t framesBefore = frames.size();
                     auto it = builtins.find(lookupName);
                     if (it != builtins.end()) {
                         VMValue result = it->second(args);
@@ -1332,9 +1343,9 @@ void VirtualMachine::executeInstruction(CallFrame& frame, const Instruction& ins
                             stack.push_back(VMValue(nullptr));
                         }
                     }
-                    if (frames.size() >= 2) {
-                        frames[frames.size() - 2].ip++;
-                    }
+                    // Advance the caller (always at framesBefore-1, even when a callee
+                    // frame was pushed on top) past the CALL instruction.
+                    frames[framesBefore - 1].ip++;
                     // Note: we don't increment the new frame's ip here, it starts at 0
                 } else {
                     for (int i = 0; i < argCount; i++) {
@@ -1359,34 +1370,36 @@ void VirtualMachine::executeInstruction(CallFrame& frame, const Instruction& ins
             }
             
             frames.pop_back();
-            if (frames.empty()) {
-                halted = true;
-            } else {
+            // An empty frame list means the current task finished; the event loop
+            // resolves its Future with lastValue.
+            if (!frames.empty()) {
                 stack.push_back(lastValue);
             }
             break;
         }
         
-        // Await - runs event loop until Future resolves
+        // Await - suspends the current task until the Future resolves.
+        // While pending, the awaited value stays on the stack and the instruction
+        // is re-executed on resume, so other tasks run in the meantime.
         case OpCode::AWAIT: {
-            frame.ip++;
-            if (!stack.empty()) {
-                VMValue val = stack.back();
-                stack.pop_back();
-                
-                if (val.isFuture()) {
-                    auto fut = val.asFuture();
-                    if (fut->isReady()) {
-                        stack.push_back(fut->result);
-                    } else {
-                        // Run event loop until Future resolves
-                        runEventLoopUntilComplete(fut);
-                        stack.push_back(fut->result);
-                    }
-                } else {
-                    stack.push_back(val);
-                }
+            if (stack.empty()) {
+                frame.ip++;
+                break;
             }
+            if (stack.back().isFuture()) {
+                auto fut = stack.back().asFuture();
+                if (!fut->isReady()) {
+                    if (currentTask) currentTask->waitingOn = fut;
+                    suspendRequested = true;
+                    break;  // ip unchanged: retried when resumed
+                }
+                stack.pop_back();
+                if (fut->state == Future::State::Failed) {
+                    throw std::runtime_error(fut->error);
+                }
+                stack.push_back(fut->result);
+            }
+            frame.ip++;
             break;
         }
         
@@ -1650,7 +1663,9 @@ void VirtualMachine::executeInstruction(CallFrame& frame, const Instruction& ins
         
         // Halt
         case OpCode::HALT:
-            halted = true;
+            // End of the top-level program: finish the root task but let the event
+            // loop drain any async tasks that are still pending.
+            frames.clear();
             break;
             
         default:
@@ -1755,12 +1770,11 @@ const BytecodeFunction* VirtualMachine::findFunction(const VMValue& funcVal) {
 }
 
 void VirtualMachine::callFunction(const BytecodeFunction& fn, const std::vector<VMValue>& args) {
-    // If this is an async function, create a Future and schedule it
+    // Async function: don't run it now. Create a task + Future and hand the
+    // Future back to the caller; the event loop runs the body when scheduled.
     if (fn.isAsync) {
         auto fut = std::make_shared<Future>();
-        // Schedule the coroutine to run
-        scheduleCoroutine(fn, fut);
-        // Push the future onto the stack
+        scheduleCoroutine(fn, args, fut);
         stack.push_back(VMValue(fut));
         return;
     }
@@ -1775,48 +1789,97 @@ void VirtualMachine::callFunction(const BytecodeFunction& fn, const std::vector<
     }
 }
 
-// Schedule an async function to run as a coroutine
-void VirtualMachine::scheduleCoroutine(const BytecodeFunction& fn, std::shared_ptr<Future> fut) {
-    size_t stackBase = stack.size();
-    frames.emplace_back(&fn, stackBase);
-    
-    CallFrame& frame = frames.back();
-    
-    // Add to pending futures
-    pendingFutures.push_back(fut);
+// Create a task for an async function call and queue it to run
+void VirtualMachine::scheduleCoroutine(const BytecodeFunction& fn, const std::vector<VMValue>& args, std::shared_ptr<Future> fut) {
+    auto task = std::make_shared<Task>();
+    task->future = fut;
+    task->frames.emplace_back(&fn, 0);
+    CallFrame& frame = task->frames.back();
+    for (size_t i = 0; i < args.size() && i < frame.locals.size(); i++) {
+        frame.locals[i] = args[i];
+    }
+    readyTasks.push_back(task);
 }
 
-// Run the event loop until a specific Future is complete
-void VirtualMachine::runEventLoopUntilComplete(std::shared_ptr<Future> target) {
-    while (!target->isReady() && !halted) {
-        bool didWork = false;
-        
-        // Process pending futures
-        for (auto it = pendingFutures.begin(); it != pendingFutures.end(); ) {
-            auto& fut = *it;
-            
-            if (fut->isReady()) {
-                it = pendingFutures.erase(it);
-                continue;
+// Cooperative event loop. Runs each ready task until it finishes or awaits a
+// pending Future, then switches to the next one. Idles (sleeps) only when every
+// task is waiting on a timer.
+void VirtualMachine::runEventLoop() {
+    while (!halted) {
+        // Resolve elapsed timers
+        auto now = std::chrono::steady_clock::now();
+        for (auto it = timers.begin(); it != timers.end(); ) {
+            if ((*it)->wakeAt <= now) {
+                (*it)->state = Future::State::Resolved;
+                it = timers.erase(it);
+            } else {
+                ++it;
             }
-            
-            if (!frames.empty()) {
-                CallFrame& frame = frames.back();
-                
-                if (frame.ip < frame.function->instructions.size()) {
-                    const Instruction& instr = frame.function->instructions[frame.ip];
-                    executeInstruction(frame, instr);
-                    didWork = true;
-                } else {
-                    frames.pop_back();
-                }
-            }
-            
-            ++it;
         }
         
-        if (!didWork && !target->isReady()) {
-            break;
+        // Wake tasks whose awaited Future is ready
+        for (auto it = waitingTasks.begin(); it != waitingTasks.end(); ) {
+            if ((*it)->waitingOn && (*it)->waitingOn->isReady()) {
+                (*it)->waitingOn = nullptr;
+                readyTasks.push_back(*it);
+                it = waitingTasks.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        
+        if (readyTasks.empty()) {
+            if (waitingTasks.empty()) break;  // all done
+            if (timers.empty()) {
+                throw std::runtime_error("Deadlock: awaited Future can never resolve");
+            }
+            // Nothing runnable: sleep until the earliest timer fires
+            auto earliest = timers.front()->wakeAt;
+            for (auto& t : timers) earliest = std::min(earliest, t->wakeAt);
+            std::this_thread::sleep_until(earliest);
+            continue;
+        }
+        
+        auto task = readyTasks.front();
+        readyTasks.pop_front();
+        
+        // Load the task's state into the VM and run it
+        stack.swap(task->stack);
+        frames.swap(task->frames);
+        currentTask = task;
+        suspendRequested = false;
+        
+        try {
+            while (!halted && !frames.empty() && !suspendRequested) {
+                CallFrame& frame = frames.back();
+                if (frame.ip >= frame.function->instructions.size()) {
+                    frames.pop_back();
+                    if (!frames.empty()) {
+                        frames.back().ip++;
+                        stack.push_back(VMValue(nullptr));
+                    } else {
+                        lastValue = VMValue(nullptr);
+                    }
+                    continue;
+                }
+                executeInstruction(frame, frame.function->instructions[frame.ip]);
+            }
+        } catch (...) {
+            stack.swap(task->stack);
+            frames.swap(task->frames);
+            currentTask = nullptr;
+            throw;
+        }
+        
+        stack.swap(task->stack);
+        frames.swap(task->frames);
+        currentTask = nullptr;
+        
+        if (task->frames.empty()) {
+            task->future->result = lastValue;
+            task->future->state = Future::State::Resolved;
+        } else if (suspendRequested) {
+            waitingTasks.push_back(task);
         }
     }
 }
